@@ -1,0 +1,10 @@
+[project]
+name = "pathfinding-mcts"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.2.0",
+    "pygame>=2.6.0",
+]
