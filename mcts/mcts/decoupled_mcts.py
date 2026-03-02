@@ -68,7 +68,7 @@ class _Node:
         # First index is agent, second is action
         self.visits_by_action: List[List[int]] = [[0]*num_actions for i in range(num_actors)]
         self.value_by_action: List[List[float]] = [[0]*num_actions for i in range(num_actors)]
-        self._children: List["_Node"] = [None] * (num_actions ** num_actors)
+        self._children: Dict[int, "_Node"] = {}
         self.visits = 0
         self._fully_expanded = False
 
@@ -82,7 +82,7 @@ class _Node:
 
     def get_child(self, actions: List[int]):
         index = self._get_child_index(actions)
-        child_node = self._children[index]
+        child_node = self._children.get(index, None)
         if child_node is None:
             child_state = self.state.apply_actions(actions)
             child_node = _Node(child_state, self, actions, self.num_actors, self.num_actions)
@@ -200,14 +200,9 @@ class MCTS:
         return node.get_child(actions)
     
     def _select_child_to_expand(self, node: _Node) -> _Node:
-        visited_actions_by_actor = [
-            [action for action, action_count in enumerate(actions) if action_count > 0] for
-            actions in node.visits_by_action
-        ]
-
         selected_actions = []
-        for actor, visited_actions in zip(range(self.num_actors), visited_actions_by_actor):
-            unvisited_actions = [action for action in range(self.num_actions) if action not in visited_actions]
+        for actor in range(self.num_actors):
+            unvisited_actions = [action for action in range(self.num_actions) if node.visits_by_action[actor[action]] == 0]
             selected_actions.append(random.choice(unvisited_actions))
 
         return node.get_child(selected_actions)

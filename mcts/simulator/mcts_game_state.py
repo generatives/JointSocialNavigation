@@ -30,10 +30,12 @@ class MCTSGameState(GameStateProtocol):
         self.agent_goal_positions = agent_goal_positions
         self.depth = depth
 
-        self.is_terminal_cache = None
+        self._is_terminal_cache = None
+        self._terminal_value_cache = None
+        self._legal_actions = [list(range(self.num_actions))] * self.num_actors
 
     def legal_actions(self) -> Iterable[Iterable[Action]]:
-        return [list(range(self.num_actions))] * self.num_actors
+        return self._legal_actions
 
     def apply_actions(self, actions: List[int]) -> "GameStateProtocol":
         orientation_changes = np.array([-self.angle, 0, self.angle])
@@ -57,16 +59,18 @@ class MCTSGameState(GameStateProtocol):
         )
 
     def is_terminal(self) -> bool:
-        if self.is_terminal_cache is None:
+        if self._is_terminal_cache is None:
             collided = any((not self.map.position_is_free(self.positions[i, :]) for i in range(self.num_actors)))
             reached_depth = self.depth >= 6
-            self.is_terminal_cache = collided or reached_depth
+            self._is_terminal_cache = collided or reached_depth
 
-        return self.is_terminal_cache
+        return self._is_terminal_cache
 
     def terminal_values(self) -> ValueMap:
-        distances = -np.linalg.norm(self.agent_goal_positions - self.positions, axis=1)
-        return distances.tolist()
+        if self._terminal_value_cache is None:
+            self._terminal_value_cache = (-np.linalg.norm(self.agent_goal_positions - self.positions, axis=1)).tolist()
+
+        return self._terminal_value_cache
     
 
 def navigation_rollout(state: MCTSGameState):
