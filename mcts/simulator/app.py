@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 import math
+import time
 
 import numpy as np
-import pygame
 
 from .agents import Crowd, MCTSRobotAI, Robot, RobotAI
 from .constants import WALL
 from .map import ScenarioMap
+from .pygame_threaded import (
+    Circle,
+    DrawCommand,
+    Fill,
+    InputSnapshot,
+    Line,
+    Lines,
+    Present,
+    Rect,
+    Text,
+    ThreadedPygameRuntime,
+)
 
 
 class Simulator:
@@ -21,50 +33,61 @@ class Simulator:
         self.control_modes = ("MANUAL", "ROBOT_AI", "MCTS_ROBOT_AI")
         self.control_mode_idx = 1
 
-        pygame.init()
         self.cell_px = 24
-        self.screen = pygame.display.set_mode(
-            (self.scenario.width * self.cell_px, self.scenario.height * self.cell_px)
+        self.runtime = ThreadedPygameRuntime(
+            window_size=(self.scenario.width * self.cell_px, self.scenario.height * self.cell_px),
+            title="Crowded Navigation Simulator",
+            font_name="consolas",
+            font_size=18,
         )
-        pygame.display.set_caption("Crowded Navigation Simulator")
-        self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont("consolas", 18)
+        self.input_snapshot = InputSnapshot()
 
     def run(self) -> None:
+        self.runtime.start()
+        try:
+            # Run for a few seconds to get some people in the scene
+            base_dt = 1.0 / 30.0
+            for _ in range(int(1.0 / base_dt * 6)):
+                self._update(base_dt)
 
-        # Run for a few seconds to get some people in the scene
-        base_dt = 1.0 / 30.0
-        for i in range(int(1.0 / base_dt * 6)):
-            self._update(base_dt)
+            running = True
+            frame_period = 1.0 / 30.0
+            prev_time = time.perf_counter()
+            while running:
+                now = time.perf_counter()
+                elapsed = now - prev_time
+                if elapsed < frame_period:
+                    time.sleep(frame_period - elapsed)
+                    now = time.perf_counter()
+                    elapsed = now - prev_time
+                dt = min(elapsed, frame_period)
+                prev_time = now
+                self.input_snapshot = self.runtime.poll_input()
+                running = self._handle_events(self.input_snapshot)
+                self._update(dt)
+                self._draw()
+        finally:
+            self.runtime.stop()
 
-        running = True
-        while running:
-            dt = self.clock.tick(30) / 1000.0
-            dt = min(dt, 1.0 / 30.0)
-            running = self._handle_events()
-            self._update(dt)
-            self._draw()
-        pygame.quit()
-
-    def _handle_events(self) -> bool:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                return False
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_TAB:
-                prev_mode = self.control_modes[self.control_mode_idx]
-                self.control_mode_idx = (self.control_mode_idx + 1) % len(self.control_modes)
-                next_mode = self.control_modes[self.control_mode_idx]
-                if prev_mode == "ROBOT_AI" and next_mode != "ROBOT_AI":
-                    self.robot.path = []
-                    self.robot.path_ptr = 0
-            if event.type == pygame.MOUSEBUTTONDOWN and self.control_modes[self.control_mode_idx] != "MANUAL":
-                clicked = self._px_to_cell(event.pos)
-                if event.button == 1 and self.scenario.is_free(clicked):
+    def _handle_events(self, snapshot: InputSnapshot) -> bool:
+        if snapshot.quit_requested:
+            return False
+        if snapshot.tab_pressed:
+            prev_mode = self.control_modes[self.control_mode_idx]
+            self.control_mode_idx = (self.control_mode_idx + 1) % len(self.control_modes)
+            next_mode = self.control_modes[self.control_mode_idx]
+            if prev_mode == "ROBOT_AI" and next_mode != "ROBOT_AI":
+                self.robot.path = []
+                self.robot.path_ptr = 0
+        if self.control_modes[self.control_mode_idx] != "MANUAL":
+            for click in snapshot.mouse_clicks:
+                clicked = self._px_to_cell(click.pos)
+                if click.button == 1 and self.scenario.is_free(clicked):
                     self.robot_ai.set_manual_goal(clicked)
                     self.mcts_robot_ai.set_manual_goal(clicked)
                     self.robot.path = []
                     self.robot.path_ptr = 0
-                if event.button == 3:
+                if click.button == 3:
                     self.robot_ai.clear_manual_goal()
                     self.mcts_robot_ai.clear_manual_goal()
                     self.robot.path = []
@@ -72,7 +95,6 @@ class Simulator:
         return True
 
     def _update(self, dt: float) -> None:
-        keys = pygame.key.get_pressed()
         mode = self.control_modes[self.control_mode_idx]
         if mode == "ROBOT_AI":
             self.robot_ai.update(self.robot, dt)
@@ -81,13 +103,13 @@ class Simulator:
         else:
             v = 0.0
             w = 0.0
-            if keys[pygame.K_UP]:
+            if self.input_snapshot.up_pressed:
                 v += 2.0
-            if keys[pygame.K_DOWN]:
+            if self.input_snapshot.down_pressed:
                 v -= 1.0
-            if keys[pygame.K_LEFT]:
+            if self.input_snapshot.left_pressed:
                 w -= 2.5
-            if keys[pygame.K_RIGHT]:
+            if self.input_snapshot.right_pressed:
                 w += 2.5
             self.robot.command_v = v
             self.robot.command_w = w
@@ -96,54 +118,86 @@ class Simulator:
         self.crowd.update(dt, self.robot)
 
     def _draw(self) -> None:
-        self.screen.fill((237, 242, 245))
+        commands = [Fill((237, 242, 245))]
         for y in range(self.scenario.height):
             for x in range(self.scenario.width):
-                rect = pygame.Rect(x * self.cell_px, y * self.cell_px, self.cell_px, self.cell_px)
                 if self.scenario.grid[y, x] == WALL:
-                    pygame.draw.rect(self.screen, (37, 41, 44), rect)
+                    commands.append(
+                        Rect(
+                            x=x * self.cell_px,
+                            y=y * self.cell_px,
+                            w=self.cell_px,
+                            h=self.cell_px,
+                            color=(37, 41, 44),
+                        )
+                    )
                 else:
-                    pygame.draw.rect(self.screen, (220, 226, 230), rect, width=1)
+                    commands.append(
+                        Rect(
+                            x=x * self.cell_px,
+                            y=y * self.cell_px,
+                            w=self.cell_px,
+                            h=self.cell_px,
+                            color=(220, 226, 230),
+                            width=1,
+                        )
+                    )
 
-        self._draw_markers(self.scenario.human_starts, (44, 120, 230))
-        self._draw_markers(self.scenario.human_ends, (61, 184, 112))
+        self._draw_markers(commands, self.scenario.human_starts, (44, 120, 230))
+        self._draw_markers(commands, self.scenario.human_ends, (61, 184, 112))
         goal = self.robot_ai.manual_goal if self.robot_ai.manual_goal is not None else self.mcts_robot_ai.manual_goal
         if goal is not None:
-            self._draw_markers([goal], (235, 120, 50))
+            self._draw_markers(commands, [goal], (235, 120, 50))
 
         active_idxs = np.flatnonzero(self.crowd.active)
         for idx in active_idxs:
-            self._draw_circle(self.crowd.positions[idx], float(self.crowd.radius[idx]), (58, 138, 246))
+            self._draw_circle(commands, self.crowd.positions[idx], float(self.crowd.radius[idx]), (58, 138, 246))
 
         if self.robot.path and len(self.robot.path) >= 2:
             points = [self._to_px(self.scenario.cell_to_world(c)) for c in self.robot.path]
-            pygame.draw.lines(self.screen, (201, 85, 73), False, points, width=2)
+            commands.append(Lines(points=points, color=(201, 85, 73), closed=False, width=2))
 
-        self._draw_circle(self.robot.position, self.robot.radius, (212, 63, 44))
+        self._draw_circle(commands, self.robot.position, self.robot.radius, (212, 63, 44))
         heading = self.robot.position + self.robot.forward() * (self.robot.radius + 0.45)
-        pygame.draw.line(self.screen, (24, 27, 28), self._to_px(self.robot.position), self._to_px(heading), 3)
+        commands.append(
+            Line(start=self._to_px(self.robot.position), end=self._to_px(heading), color=(24, 27, 28), width=3)
+        )
 
         mode = self.control_modes[self.control_mode_idx]
         manual_goal = "None" if goal is None else f"{goal[0]},{goal[1]}"
-        text = self.font.render(
-            f"Mode: {mode} | TAB cycle | LMB set AI goal | RMB clear | goal: {manual_goal}",
-            True,
-            (12, 12, 12),
+        commands.append(
+            Text(
+                text=f"Mode: {mode} | TAB cycle | LMB set AI goal | RMB clear | goal: {manual_goal}",
+                pos=(10, 8),
+                color=(12, 12, 12),
+            )
         )
-        self.screen.blit(text, (10, 8))
-        pygame.display.flip()
+        commands.append(Present())
+        self.runtime.submit_frame(commands)
 
-    def _draw_markers(self, cells: list[tuple[int, int]], color: tuple[int, int, int]) -> None:
+    def _draw_markers(
+        self,
+        commands: list[DrawCommand],
+        cells: list[tuple[int, int]],
+        color: tuple[int, int, int],
+    ) -> None:
         for cell in cells:
             center = self._to_px(self.scenario.cell_to_world(cell))
-            pygame.draw.circle(self.screen, color, center, self.cell_px // 4, width=2)
+            commands.append(Circle(center=center, radius=self.cell_px // 4, color=color, width=2))
 
-    def _draw_circle(self, world_pos: np.ndarray, world_radius: float, color: tuple[int, int, int]) -> None:
-        pygame.draw.circle(
-            self.screen,
-            color,
-            self._to_px(world_pos),
-            max(2, int(round(world_radius * self.cell_px))),
+    def _draw_circle(
+        self,
+        commands: list[DrawCommand],
+        world_pos: np.ndarray,
+        world_radius: float,
+        color: tuple[int, int, int],
+    ) -> None:
+        commands.append(
+            Circle(
+                center=self._to_px(world_pos),
+                radius=max(2, int(round(world_radius * self.cell_px))),
+                color=color,
+            )
         )
 
     def _to_px(self, world_pos: np.ndarray) -> tuple[int, int]:

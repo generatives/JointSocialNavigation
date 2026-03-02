@@ -46,7 +46,10 @@ class _Node:
         "_children",
         "visits",
         "num_actors",
-        "num_actions"
+        "num_actions",
+        "visits_by_action",
+        "value_by_action",
+        "_fully_expanded"
     )
 
     def __init__(
@@ -67,10 +70,11 @@ class _Node:
         self.value_by_action: List[List[float]] = [[0]*num_actions for i in range(num_actors)]
         self._children: List["_Node"] = [None] * (num_actions ** num_actors)
         self.visits = 0
+        self._fully_expanded = False
 
     def _get_child_index(self, actions: List[int]):
         index = 0
-        for actor_idx in range(self.num_actors, 0, -1):
+        for actor_idx in range(self.num_actors - 1, -1, -1):
             step = self.num_actions ** actor_idx
             index += step * actions[actor_idx]
         return index
@@ -81,10 +85,16 @@ class _Node:
         child_node = self._children[index]
         if child_node is None:
             child_state = self.state.apply_actions(actions)
-            child_node = _Node(child_state, self, self.num_actors, self.num_actions)
+            child_node = _Node(child_state, self, actions, self.num_actors, self.num_actions)
             self._children[index] = child_node
 
         return child_node
+    
+    def fully_expanded(self) -> bool:
+        if not self._fully_expanded:
+            self._fully_expanded = all(count > 0 for action_count in self.visits_by_action for count in action_count)
+        
+        return self._fully_expanded
 
 
 
@@ -132,14 +142,15 @@ class MCTS:
         num_simulations: int,
     ) -> Tuple[Action, GameStateProtocol]:
         #print("Starting search")
-        root = _Node(root_state, None, self.num_actors, self.num_actions)
+        root = _Node(root_state, None, None, self.num_actors, self.num_actions)
 
         for i in range(num_simulations):
             #print(f"Starting simulation {i}")
             node = root
             depth = 0
+            
             #print(f"Selecting node for simulation {i}")
-            while node._children and depth < self.max_depth:
+            while node.fully_expanded() and not node.state.is_terminal() and depth < self.max_depth:
                 node = self._select_child(node)
                 depth += 1
 
@@ -148,6 +159,8 @@ class MCTS:
                 values = node.state.terminal_values()
             else:
                 #print(f"Rolling out simulation {i}")
+                if not node.fully_expanded() and depth < self.max_depth:
+                    node = self._select_child_to_expand(node)
                 values = self.rollout_fn(node.state)
 
             #print(f"Backpropagating simulation {i}")
@@ -155,8 +168,8 @@ class MCTS:
             #print(f"Completed simulation {i}")
 
         best_actions = self._best_actions(root)
-        child_state = root.get_child(best_actions)
-        return best_actions, child_state
+        child_node = root.get_child(best_actions)
+        return best_actions, child_node.state
 
     def _best_actions(self, root: _Node) -> Action:
         actions = []
@@ -167,7 +180,6 @@ class MCTS:
         return actions
 
     def _select_child(self, node: _Node) -> _Node:
-        player = node.state.current_player()
         sqrt_visits = math.sqrt(node.visits + 1)
 
         actions = [0] * self.num_actors
@@ -186,6 +198,19 @@ class MCTS:
             actions[actor] = best_action
 
         return node.get_child(actions)
+    
+    def _select_child_to_expand(self, node: _Node) -> _Node:
+        visited_actions_by_actor = [
+            [action for action, action_count in enumerate(actions) if action_count > 0] for
+            actions in node.visits_by_action
+        ]
+
+        selected_actions = []
+        for actor, visited_actions in zip(range(self.num_actors), visited_actions_by_actor):
+            unvisited_actions = [action for action in range(self.num_actions) if action not in visited_actions]
+            selected_actions.append(random.choice(unvisited_actions))
+
+        return node.get_child(selected_actions)
 
     def _backpropagate(self, node: _Node, values: ValueMap) -> None:
         while node is not None:

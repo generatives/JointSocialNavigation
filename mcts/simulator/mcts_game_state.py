@@ -47,6 +47,7 @@ class MCTSGameState(GameStateProtocol):
         return MCTSGameState(
             new_positions,
             new_orientations,
+            self.agent_goal_positions,
             self.num_actors,
             self.num_actions,
             self.movement_distance,

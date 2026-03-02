@@ -176,11 +176,9 @@ class MCTSRobotAI:
             map=self.scenario,
             depth=0
         )
-        try:
-            _, child_state = mcts.search(root_state, num_simulations=100)
-            return child_state.positions[0].copy()
-        except Exception:
-            return self.scenario.cell_to_world(self.manual_goal)
+
+        _, child_state = mcts.search(root_state, num_simulations=100)
+        return child_state.positions[0].copy()
 
     def update(self, robot: Robot, dt: float) -> None:
         self.replan_timer -= dt
