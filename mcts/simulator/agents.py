@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from mcts.decoupled_mcts import MCTS
-from simulator.mcts_game_state import MCTSGameState, navigation_rollout
+from mcts.decoupled_mcts import MCTS, MCTSConfig
+from simulator.mcts_game_state import MCTSGameState, MCTSGameStateConfig, navigation_rollout
 
 from .constants import WALL
 from .map import ScenarioMap
@@ -31,24 +31,44 @@ class Robot:
     def forward(self) -> np.ndarray:
         return np.array([math.cos(self.theta), math.sin(self.theta)], dtype=np.float32)
 
-    def step(self, dt: float, world: ScenarioMap) -> None:
+    def step(self, dt: float, world: ScenarioMap) -> "RobotStepMetrics":
         v = float(np.clip(self.command_v, -self.max_speed, self.max_speed))
         w = float(np.clip(self.command_w, -self.max_omega, self.max_omega))
         self.theta = (self.theta + w * dt + math.pi) % (2.0 * math.pi) - math.pi
 
         delta = self.forward() * v * dt
         new_pos = self.position + delta
-        resolved = self._resolve_world_collision(new_pos, world)
+        resolved, collided_with_wall = self._resolve_world_collision(new_pos, world)
+        distance_travelled = float(np.linalg.norm(resolved - self.position))
         self.position[:] = resolved
+        return RobotStepMetrics(
+            distance_travelled=distance_travelled,
+            collided_with_wall=collided_with_wall,
+        )
 
-    def _resolve_world_collision(self, proposal: np.ndarray, world: ScenarioMap) -> np.ndarray:
+    def _resolve_world_collision(self, proposal: np.ndarray, world: ScenarioMap) -> tuple[np.ndarray, bool]:
         out = self.position.copy()
+        collided_with_wall = False
         for axis in (0, 1):
             test = out.copy()
             test[axis] = proposal[axis]
             if not collides_with_walls(test, self.radius, world):
                 out[axis] = test[axis]
-        return out
+            else:
+                collided_with_wall = True
+        return out, collided_with_wall
+
+
+@dataclass(slots=True)
+class RobotStepMetrics:
+    distance_travelled: float
+    collided_with_wall: bool
+
+
+@dataclass(slots=True)
+class CrowdStepMetrics:
+    robot_human_collisions: int
+    robot_social_force_generated: float
 
 
 class RobotAI:
@@ -163,21 +183,26 @@ class MCTSRobotAI:
         goal_positions = np.vstack((robot_goal, human_goals))
 
         num_agents = positions.shape[0]
-        mcts = MCTS(navigation_rollout, num_agents, num_actions)
+        mcts_config = MCTSConfig(num_actors=num_agents, num_actions=num_actions, max_depth=tree_depth)
+        state_config = MCTSGameStateConfig(
+            mcts_config=mcts_config,
+            movement_distance=human_speed * dt,
+            angle=np.pi / 4.0,
+            uncomfortable_distance=1.5,
+            map=self.scenario,
+        )
+        mcts = MCTS(mcts_config, navigation_rollout, rng=random.Random(random.randint(0, 2**31 - 1)))
 
         root_state = MCTSGameState(
             positions=positions,
             orientations=orientations,
             agent_goal_positions=goal_positions,
-            num_actors=num_agents,
-            num_actions=num_actions,
-            movement_distance=human_speed * dt,
-            angle=np.pi / 4.0,
-            map=self.scenario,
+            value_accumulator=None,
+            config=state_config,
             depth=0
         )
 
-        _, child_state = mcts.search(root_state, num_simulations=100)
+        _, child_state, _ = mcts.search(root_state, num_simulations=100)
         return child_state.positions[0].copy()
 
     def update(self, robot: Robot, dt: float) -> None:
@@ -261,7 +286,9 @@ class Crowd:
         self.path_ptr[idx] = 0
         self.replan_timer[idx] = random.uniform(0.4, 1.2)
 
-    def update(self, dt: float, robot: Robot) -> None:
+    def update(self, dt: float, robot: Robot) -> CrowdStepMetrics:
+        robot_social_force_generated = 0.0
+        robot_human_collisions = 0
         self.spawn_accumulator += dt * self.spawn_rate_per_sec
         while self.spawn_accumulator >= 1.0:
             self.spawn()
@@ -269,7 +296,10 @@ class Crowd:
 
         active_idxs = np.flatnonzero(self.active)
         if active_idxs.size == 0:
-            return
+            return CrowdStepMetrics(
+                robot_human_collisions=robot_human_collisions,
+                robot_social_force_generated=robot_social_force_generated,
+            )
 
         self.replan_timer[active_idxs] -= dt
         for i in active_idxs:
@@ -288,7 +318,9 @@ class Crowd:
 
         relaxation_time = 0.45
         accel = (desired - self.velocities[active_idxs]) / relaxation_time
-        accel += self._social_forces(active_idxs, robot)
+        social_forces, force_generated = self._social_forces(active_idxs, robot)
+        robot_social_force_generated += force_generated
+        accel += social_forces
         self.velocities[active_idxs] += accel * dt
 
         speed = np.linalg.norm(self.velocities[active_idxs], axis=1)
@@ -302,11 +334,15 @@ class Crowd:
             self.positions[i] = self._resolve_world_collision(int(i), proposed[idx_local])
 
         self._resolve_human_collisions(active_idxs)
-        self._resolve_robot_collisions(active_idxs, robot)
+        robot_human_collisions += self._resolve_robot_collisions(active_idxs, robot)
 
         for i in active_idxs:
             if np.linalg.norm(self.positions[i] - self.goals[i]) < 0.6:
                 self.despawn(int(i))
+        return CrowdStepMetrics(
+            robot_human_collisions=robot_human_collisions,
+            robot_social_force_generated=robot_social_force_generated,
+        )
 
     def _current_waypoint(self, idx: int) -> np.ndarray:
         path = self.paths[idx]
@@ -339,9 +375,10 @@ class Crowd:
             self.paths[idx] = path
             self.path_ptr[idx] = 1 if len(path) > 1 else 0
 
-    def _social_forces(self, active_idxs: np.ndarray, robot: Robot) -> np.ndarray:
+    def _social_forces(self, active_idxs: np.ndarray, robot: Robot) -> tuple[np.ndarray, float]:
         n = active_idxs.size
         forces = np.zeros((n, 2), dtype=np.float32)
+        robot_social_force_generated = 0.0
 
         a_h = 6.0
         b_h = 0.7
@@ -378,7 +415,9 @@ class Crowd:
             mag = 10.0 * math.exp((combined - dist) / 0.6)
             if penetration > 0.0:
                 mag += penetration * 30.0
-            forces[i] += direction * mag
+            force = direction * mag
+            forces[i] += force
+            robot_social_force_generated += float(np.linalg.norm(force))
 
         for i in range(n):
             cell = self.scenario.world_to_cell(pos[i])
@@ -398,7 +437,7 @@ class Crowd:
                     mag = a_obs * math.exp((rad[i] + 0.5 - dist) / b_obs)
                     forces[i] += direction * mag
 
-        return forces
+        return forces, robot_social_force_generated
 
     def _resolve_world_collision(self, idx: int, proposal: np.ndarray) -> np.ndarray:
         out = self.positions[idx].copy()
@@ -428,7 +467,8 @@ class Crowd:
                 self.velocities[i] *= 0.5
                 self.velocities[j] *= 0.5
 
-    def _resolve_robot_collisions(self, active_idxs: np.ndarray, robot: Robot) -> None:
+    def _resolve_robot_collisions(self, active_idxs: np.ndarray, robot: Robot) -> int:
+        collision_count = 0
         for i in active_idxs:
             delta = self.positions[i] - robot.position
             dist = np.linalg.norm(delta)
@@ -439,3 +479,5 @@ class Crowd:
             overlap = target - dist
             self.positions[i] += n * overlap
             self.velocities[i] *= 0.3
+            collision_count += 1
+        return collision_count
