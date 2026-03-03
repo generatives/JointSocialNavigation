@@ -1,0 +1,44 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"path": "../src"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.repos": "yaml",
+			"*.world": "xml",
+			"*.xacro": "xml"
+		},
+		"ROS2.distro": "humble",
+		"python.autoComplete.extraPaths": [
+			"/workspaces/JointSocialNavigation/src/hunavis",
+			"/workspaces/JointSocialNavigation/src/social_simulator",
+			"/workspaces/JointSocialNavigation/src/people",
+			"/workspaces/JointSocialNavigation/src/zed-ros2-examples",
+			"/workspaces/JointSocialNavigation/src/zed2-ros2-wrapper",
+			"/workspaces/JointSocialNavigation/src/nonpersistent_voxel_layer",
+			"/workspaces/JointSocialNavigation/src/hunav_sim",
+			"/workspaces/JointSocialNavigation/src/hunav_gazebo_wrapper",
+			"/workspaces/JointSocialNavigation/src/hunav_evaluator",
+			"/opt/ros/humble/local/lib/python3.10/dist-packages",
+			"/opt/ros/humble/lib/python3.10/site-packages"
+		],
+		"python.analysis.extraPaths": [
+			"/workspaces/JointSocialNavigation/src/hunavis",
+			"/workspaces/JointSocialNavigation/src/social_simulator",
+			"/workspaces/JointSocialNavigation/src/people",
+			"/workspaces/JointSocialNavigation/src/zed-ros2-examples",
+			"/workspaces/JointSocialNavigation/src/zed2-ros2-wrapper",
+			"/workspaces/JointSocialNavigation/src/nonpersistent_voxel_layer",
+			"/workspaces/JointSocialNavigation/src/hunav_sim",
+			"/workspaces/JointSocialNavigation/src/hunav_gazebo_wrapper",
+			"/workspaces/JointSocialNavigation/src/hunav_evaluator",
+			"/opt/ros/humble/local/lib/python3.10/dist-packages",
+			"/opt/ros/humble/lib/python3.10/site-packages"
+		]
+	}
+}
