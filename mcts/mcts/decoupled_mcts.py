@@ -13,7 +13,7 @@ ValueMap = List[float]
 @dataclass(frozen=True, slots=True)
 class MCTSConfig:
     num_actors: int
-    num_actions: int
+    num_actions: Tuple[int, ...]
     max_depth: int = 6
     child_index_steps: Tuple[int, ...] = field(init=False)
     legal_actions: Tuple[Tuple[int, ...], ...] = field(init=False)
@@ -21,19 +21,30 @@ class MCTSConfig:
     def __post_init__(self) -> None:
         if self.num_actors <= 0:
             raise ValueError("num_actors must be > 0")
-        if self.num_actions <= 0:
-            raise ValueError("num_actions must be > 0")
+        if len(self.num_actions) != self.num_actors:
+            raise ValueError("num_actions must have exactly num_actors entries")
+        if any(action_count <= 0 for action_count in self.num_actions):
+            raise ValueError("all entries in num_actions must be > 0")
         if self.max_depth <= 0:
             raise ValueError("max_depth must be > 0")
+
+        num_actions = tuple(self.num_actions)
+        object.__setattr__(self, "num_actions", num_actions)
+
+        child_index_steps = []
+        radix = 1
+        for action_count in num_actions:
+            child_index_steps.append(radix)
+            radix *= action_count
         object.__setattr__(
             self,
             "child_index_steps",
-            tuple(self.num_actions ** actor_idx for actor_idx in range(self.num_actors)),
+            tuple(child_index_steps),
         )
         object.__setattr__(
             self,
             "legal_actions",
-            tuple(tuple(range(self.num_actions)) for _ in range(self.num_actors)),
+            tuple(tuple(range(action_count)) for action_count in num_actions),
         )
 
 
@@ -89,8 +100,8 @@ class _Node:
         self.parent = parent
         self.actions = actions
         # First index is agent, second is action
-        self.visits_by_action: List[List[int]] = [[0] * config.num_actions for _ in range(config.num_actors)]
-        self.value_by_action: List[List[float]] = [[0.0] * config.num_actions for _ in range(config.num_actors)]
+        self.visits_by_action: List[List[int]] = [[0] * action_count for action_count in config.num_actions]
+        self.value_by_action: List[List[float]] = [[0.0] * action_count for action_count in config.num_actions]
         self._children: Dict[int, "_Node"] = {}
         self.visits = 0
         self._fully_expanded = False
@@ -233,7 +244,7 @@ class MCTS:
         for actor in range(self.config.num_actors):
             best_score = -math.inf
             best_action = 0
-            for action in range(self.config.num_actions):
+            for action in range(self.config.num_actions[actor]):
                 action_visits = node.visits_by_action[actor][action]
                 q = node.value_by_action[actor][action] / action_visits if action_visits > 0 else 0.0
                 u = self.c_puct * (sqrt_visits / (1 + action_visits))
@@ -250,10 +261,13 @@ class MCTS:
         for actor in range(self.config.num_actors):
             unvisited_actions = [
                 action
-                for action in range(self.config.num_actions)
+                for action in range(self.config.num_actions[actor])
                 if node.visits_by_action[actor][action] == 0
             ]
-            selected_actions.append(self.rng.choice(unvisited_actions))
+            if any(unvisited_actions):
+                selected_actions.append(self.rng.choice(unvisited_actions))
+            else:
+                selected_actions.append(self.rng.choice(range(self.config.num_actions[actor])))
 
         return node.get_child(selected_actions)
 

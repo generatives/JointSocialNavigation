@@ -156,7 +156,6 @@ class MCTSRobotAI:
 
     def _plan_intermediate_goal(self, robot: Robot) -> np.ndarray:
         num_humans = 5
-        num_actions = 3
         tree_depth = 6
         dt = 0.5
         human_speed = 1.7
@@ -177,16 +176,24 @@ class MCTSRobotAI:
         human_orientations = np.arctan2(human_velocities[:, 1], human_velocities[:, 0])
         human_goals = human_positions + human_velocities * (human_speed * dt * tree_depth)
 
+        robot_velocity = np.array([
+            [np.cos(robot.theta), np.sin(robot.theta)]
+        ])
+
         positions = np.vstack((robot.position[None, :], human_positions))
-        orientations = np.concatenate((np.array([robot.theta], dtype=np.float32), human_orientations))
+        velocities = np.concatenate((robot_velocity, human_velocities))
         robot_goal = self.scenario.cell_to_world(self.manual_goal)[None, :]
         goal_positions = np.vstack((robot_goal, human_goals))
 
         num_agents = positions.shape[0]
+        num_actions = [3] + [1] * (num_agents - 1)
         mcts_config = MCTSConfig(num_actors=num_agents, num_actions=num_actions, max_depth=tree_depth)
         state_config = MCTSGameStateConfig(
             mcts_config=mcts_config,
-            movement_distance=human_speed * dt,
+            robot_speed=human_speed,
+            dt=dt,
+            robot_radius=robot.radius,
+            human_radius=np.mean(self.crowd.radius),
             angle=np.pi / 4.0,
             uncomfortable_distance=1.5,
             map=self.scenario,
@@ -195,7 +202,7 @@ class MCTSRobotAI:
 
         root_state = MCTSGameState(
             positions=positions,
-            orientations=orientations,
+            velocities=velocities,
             agent_goal_positions=goal_positions,
             accumulated_value=None,
             config=state_config,
