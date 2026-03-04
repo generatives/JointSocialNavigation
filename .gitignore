@@ -32,6 +32,9 @@ devel_isolated/
 # qcreator stuff
 CMakeLists.txt.user
 
+# Python stuff
+__pycache__
+
 srv/_*.py
 *.pcd
 *.pyc
@@ -56,7 +59,7 @@ log/
 site/
 
 # Source folders
-src/
+src/*
 py/
 
 # Misc files
@@ -69,3 +72,6 @@ py/
 frames*
 *log
 *mp4
+
+# Our Modules
+!src/social_navigation/

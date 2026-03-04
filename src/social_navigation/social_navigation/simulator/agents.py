@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from mcts.decoupled_mcts import MCTS, MCTSConfig
-from simulator.mcts_game_state import MCTSGameState, MCTSGameStateConfig, navigation_rollout
+from social_navigation.mcts.decoupled_mcts import MCTS, MCTSConfig
+from social_navigation.simulator.mcts_game_state import MCTSGameState, MCTSGameStateConfig, navigation_rollout
 
 from .constants import WALL
 from .map import ScenarioMap

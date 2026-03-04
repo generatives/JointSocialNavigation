@@ -17,6 +17,18 @@ class ScenarioMap:
     robot_goals: list[tuple[int, int]]
 
     @staticmethod
+    def build_empty() -> "ScenarioMap":
+        height, width = 20, 20
+        grid = np.zeros((height, width), dtype=np.int8)
+        grid[:, :] = FREE
+
+        human_starts = []
+        human_ends = []
+        robot_start = (0, 0)
+        robot_goals = []
+        return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
+
+    @staticmethod
     def build_default() -> "ScenarioMap":
         height, width = 18, 36
         grid = np.zeros((height, width), dtype=np.int8)
