@@ -173,7 +173,6 @@ class MCTSRobotAI:
 
         human_positions = self.crowd.positions[closest_humans]
         human_velocities = self.crowd.velocities[closest_humans]
-        human_orientations = np.arctan2(human_velocities[:, 1], human_velocities[:, 0])
         human_goals = human_positions + human_velocities * (human_speed * dt * tree_depth)
 
         robot_velocity = np.array([
@@ -186,7 +185,7 @@ class MCTSRobotAI:
         goal_positions = np.vstack((robot_goal, human_goals))
 
         num_agents = positions.shape[0]
-        num_actions = [3] + [1] * (num_agents - 1)
+        num_actions = [6] + [1] * (num_agents - 1)
         mcts_config = MCTSConfig(num_actors=num_agents, num_actions=num_actions, max_depth=tree_depth)
         state_config = MCTSGameStateConfig(
             mcts_config=mcts_config,
@@ -209,7 +208,7 @@ class MCTSRobotAI:
             depth=0
         )
 
-        _, child_state, _ = mcts.search(root_state, num_simulations=100)
+        _, child_state, _ = mcts.search(root_state, num_simulations=500)
         return child_state.positions[0].copy()
 
     def update(self, robot: Robot, dt: float) -> None:

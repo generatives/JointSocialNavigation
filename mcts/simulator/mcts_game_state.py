@@ -72,11 +72,13 @@ class MCTSGameState(GameStateProtocol):
 
         robot_velocity = self.velocities[0, :]
         robot_orientation = np.arctan2(robot_velocity[1], robot_velocity[0])
-        robot_new_orientation = robot_orientation + self.config.orientation_changes[actions[0]]
+        rotation = self.config.orientation_changes[int(actions[0] / 2)]
+        robot_speed = self.config.robot_speed if actions[0] % 2 == 0 else 0
+        robot_new_orientation = robot_orientation + rotation
 
         new_velocities = np.empty_like(self.velocities)
-        new_velocities[0, 0] = self.config.robot_speed * np.cos(robot_new_orientation)
-        new_velocities[0, 1] = self.config.robot_speed * np.sin(robot_new_orientation)
+        new_velocities[0, 0] = robot_speed * np.cos(robot_new_orientation)
+        new_velocities[0, 1] = robot_speed * np.sin(robot_new_orientation)
         new_velocities[1:] = human_velocities
 
         new_positions = self.positions + self.config.dt * new_velocities
@@ -147,7 +149,7 @@ class MCTSGameState(GameStateProtocol):
         max_speed = human_preferred_speed * 1.7
         too_fast = speed > max_speed
         if np.any(too_fast):
-            human_velocities *= (max_speed / speed[too_fast])[:, None]
+            human_velocities[too_fast] *= (max_speed / speed[too_fast])[:, None]
 
         return human_velocities
 
