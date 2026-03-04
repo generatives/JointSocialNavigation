@@ -6,6 +6,7 @@ from mcts.decoupled_mcts import Action, GameStateProtocol, MCTSConfig, ValueMap
 import numpy as np
 
 from simulator.map import ScenarioMap
+from simulator.mcts_sfm import calculate_likely_velocity
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +16,8 @@ class MCTSGameStateConfig:
     angle: float
     uncomfortable_distance: float
     map: ScenarioMap
+    robot_radius: float
+    human_radius: float
     orientation_changes: np.ndarray = field(init=False)
 
     def __post_init__(self) -> None:
@@ -30,34 +33,33 @@ class MCTSGameState(GameStateProtocol):
     __slots__ = (
         "config",
         "positions",
-        "orientations",
+        "velocities",
         "agent_goal_positions",
         "depth",
-        "_value_accumulator",
+        "_accumulated_value",
         "_is_terminal_cache",
         "_terminal_value_cache",
     )
 
     def __init__(self,
                  positions: np.ndarray,
-                 orientations: np.ndarray,
+                 velocities: np.ndarray,
                  agent_goal_positions: np.ndarray,
-                 value_accumulator: np.ndarray | None,
+                 accumulated_value: np.ndarray | None,
                  config: MCTSGameStateConfig,
                  depth: int):
         super().__init__()
         self.config = config
 
         self.positions = positions
-        self.orientations = orientations
+        self.velocities = velocities
         self.agent_goal_positions = agent_goal_positions
-        if value_accumulator is None:
-            value_accumulator = np.zeros((positions.shape[0],))
-        self._value_accumulator = self._accumulate_value(value_accumulator)
+        if accumulated_value is None:
+            accumulated_value = np.zeros((positions.shape[0],))
+        self._accumulated_value = self._accumulate_value(accumulated_value)
         self.depth = depth
 
         self._is_terminal_cache = None
-        self._terminal_value_cache = None
 
     def legal_actions(self) -> Iterable[Iterable[Action]]:
         return self.config.mcts_config.legal_actions
@@ -73,7 +75,7 @@ class MCTSGameState(GameStateProtocol):
             new_positions,
             new_orientations,
             self.agent_goal_positions,
-            self._value_accumulator,
+            self._accumulated_value,
             self.config,
             self.depth + 1
         )
@@ -96,19 +98,18 @@ class MCTSGameState(GameStateProtocol):
         uncomfortable_distances = np.clip(distances, 0, self.config.uncomfortable_distance)
         return np.sum(uncomfortable_distances)
     
+    def _goal_distance(self) -> np.ndarray:
+        return np.linalg.norm(self.agent_goal_positions - self.positions, axis=1)
+    
     def _accumulate_value(self, value_accumulator) -> np.ndarray:
         value_accumulator = value_accumulator.copy()
         value_accumulator[0] += self._uncomfortable_distance()
+        if self.is_terminal():
+            value_accumulator += -self._goal_distance()
         return value_accumulator
 
     def terminal_values(self) -> ValueMap:
-        if self._terminal_value_cache is None:
-            negative_distances = -np.linalg.norm(self.agent_goal_positions - self.positions, axis=1)
-            self._terminal_value_cache = (negative_distances \
-                                            + self._value_accumulator
-                                        ).tolist()
-
-        return self._terminal_value_cache
+        return self._accumulated_value.tolist()
     
 
 def navigation_rollout(state: MCTSGameState):

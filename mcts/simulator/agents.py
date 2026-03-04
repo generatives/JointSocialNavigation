@@ -197,7 +197,7 @@ class MCTSRobotAI:
             positions=positions,
             orientations=orientations,
             agent_goal_positions=goal_positions,
-            value_accumulator=None,
+            accumulated_value=None,
             config=state_config,
             depth=0
         )
