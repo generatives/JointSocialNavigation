@@ -29,7 +29,7 @@ def declare_args():
         DeclareLaunchArgument(
             "use_humans",
             default_value="true",
-            description="Specify world file name",
+            description="Specify whether to use HuNavSim",
         ),
         DeclareLaunchArgument(
             "use_gazebo_obs",
@@ -88,6 +88,11 @@ def make_cfg():
         "verbose": LaunchConfiguration("verbose"),
         "robot_name": LaunchConfiguration("robot_name"),
         "robot_sdf": LaunchConfiguration("robot_sdf"),
+        "gz_obs": LaunchConfiguration("use_gazebo_obs"),
+        "update_rate": LaunchConfiguration("update_rate"),
+        "global_frame_to_publish": LaunchConfiguration("global_frame_to_publish"),
+        "use_navgoal_to_start": LaunchConfiguration("use_navgoal_to_start"),
+        "ignore_models": LaunchConfiguration("ignore_models"),
     }
 
 def make_paths(cfg):
@@ -124,7 +129,15 @@ def hunav_group(cfg, paths):
         package="hunav_gazebo_wrapper",
         executable="hunav_gazebo_world_generator",
         output="screen",
-        parameters=[{"base_world": paths["base_world_path"]}],
+        parameters=[
+            {"base_world": paths["base_world_path"]},
+            {"use_gazebo_obs": cfg["gz_obs"]},
+            {"update_rate": cfg["update_rate"]},
+            {"robot_name": cfg["robot_name"]},
+            {"global_frame_to_publish": cfg["global_frame_to_publish"]},
+            {"use_navgoal_to_start": cfg["use_navgoal_to_start"]},
+            {"ignore_models": cfg["ignore_models"]},
+        ],
     )
 
     return {"loader": loader, "worldgen": worldgen, "group": GroupAction([loader, worldgen])}
@@ -138,12 +151,6 @@ def generate_launch_description():
 
     cfg = make_cfg()
     paths = make_paths(cfg)
-
-    ld.add_action(SetEnvironmentVariable(
-        name="GAZEBO_RESOURCE_PATH",
-        value=[EnvironmentVariable("GAZEBO_RESOURCE_PATH"), ":", PathJoinSubstitution([FindPackageShare("hunav_gazebo_wrapper"), "models"])]
-    ))
-
     hunav = hunav_group(cfg, paths)
 
     ld.add_action(GroupAction([hunav["group"]], condition=IfCondition(cfg["use_humans"])))
