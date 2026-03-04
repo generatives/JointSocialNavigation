@@ -1,128 +1,80 @@
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
-    DeclareLaunchArgument, GroupAction, SetEnvironmentVariable,
-    ExecuteProcess, RegisterEventHandler, LogInfo
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    RegisterEventHandler,
+    SetEnvironmentVariable,
+    Shutdown,
+    TimerAction,
 )
 from launch.conditions import IfCondition, UnlessCondition
-from launch.event_handlers import OnProcessExit, OnProcessStart
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, EnvironmentVariable
+from launch.event_handlers import OnProcessStart
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
-def declare_args():
-    return [
-        DeclareLaunchArgument(
-            "scenario",
-            default_value="agents_doors_hallway.yaml",
-            description="Specify scenario file name in the scenarios directory",
-        ),
-        DeclareLaunchArgument(
-            "metrics_file",
-            default_value="metrics.yaml",
-            description="Specify the name of the metrics configuration file in the config directory",
-        ),
-        DeclareLaunchArgument(
-            "base_world",
-            default_value="doors_hallway.world",
-            description="Specify world file name",
-        ),
-        DeclareLaunchArgument(
-            "use_humans",
-            default_value="true",
-            description="Specify whether to use HuNavSim",
-        ),
-        DeclareLaunchArgument(
-            "use_gazebo_obs",
-            default_value="true",
-            description="Whether to fill the agents obstacles with closest Gazebo obstacle or not",
-        ),
-        DeclareLaunchArgument(
-            "update_rate", 
-            default_value="100.0", 
-            description="Update rate of the plugin"
-        ),
-        DeclareLaunchArgument(
-            "robot_name",
-            default_value="turtlebot3_waffle",
-            description="Specify the name of the robot Gazebo model",
-        ),
-        DeclareLaunchArgument(
-            "global_frame_to_publish",
-            default_value="map",
-            description="Name of the global frame in which the position of the agents are provided",
-        ),
-        DeclareLaunchArgument(
-            "use_navgoal_to_start",
-            default_value="false",
-            description="Whether to start the agents movements when a navigation goal is received or not",
-        ),
-        DeclareLaunchArgument(
-            "ignore_models",
-            default_value="ground_plane",
-            description="list of Gazebo models that the agents should ignore as obstacles as the ground_plane. Indicate the models with a blank space between them",
-        ),
-        DeclareLaunchArgument(
-            "generated_world",
-            default_value="generatedWorld.world",
-            description="World file created by the world generator",
-        ),
-        DeclareLaunchArgument(
-            "robot_sdf",
-            default_value="",
-            description="Full path to robot sdf/model file for spawn_entity.py",
-        ),
-        DeclareLaunchArgument(
-            "verbose",
-            default_value="true",
-            description='Set "true" to increase messages written to terminal.',
-        )
-    ]
 
-def make_cfg():
-    return {
-        "scenario": LaunchConfiguration("scenario"),
-        "metrics_file": LaunchConfiguration("metrics_file"),
-        "use_humans": LaunchConfiguration("use_humans"),
-        "base_world": LaunchConfiguration("base_world"),
-        "generated_world": LaunchConfiguration("generated_world"),
-        "verbose": LaunchConfiguration("verbose"),
-        "robot_name": LaunchConfiguration("robot_name"),
-        "robot_sdf": LaunchConfiguration("robot_sdf"),
-        "gz_obs": LaunchConfiguration("use_gazebo_obs"),
-        "update_rate": LaunchConfiguration("update_rate"),
-        "global_frame_to_publish": LaunchConfiguration("global_frame_to_publish"),
-        "use_navgoal_to_start": LaunchConfiguration("use_navgoal_to_start"),
-        "ignore_models": LaunchConfiguration("ignore_models"),
-    }
+def generate_launch_description():
+    world_dir = FindPackageShare("social_simulator")
 
-def make_paths(cfg):
-    pkg = FindPackageShare("social_simulator")
-    return {
-        "scenario_path": PathJoinSubstitution([pkg, "scenarios", cfg["scenario"]]),
-        "base_world_path": PathJoinSubstitution([pkg, "worlds", cfg["base_world"]]),
-        "generated_world_path": PathJoinSubstitution([pkg, "worlds", cfg["generated_world"]]),
-    }
+    world_file = LaunchConfiguration("world")
+    scenario_file = LaunchConfiguration("scenario")
+    use_humans = LaunchConfiguration("use_humans")
+    headless = LaunchConfiguration("headless")
 
-def gazebo_group(world_path, cfg):
-    gzserver = ExecuteProcess(
-        cmd=["gzserver", world_path, "-s", "libgazebo_ros_init.so", "-s", "libgazebo_ros_factory.so"],
-        output="screen",
-    )
-    gzclient = ExecuteProcess(cmd=["gzclient"], output="screen")
+    base_world_path = PathJoinSubstitution([world_dir, "worlds", world_file])
+    generated_world_path = PathJoinSubstitution([world_dir, "worlds", "generatedWorld.world"])
+    scenario_path = PathJoinSubstitution([FindPackageShare("social_simulator"), "scenarios", scenario_file])
 
-    return GroupAction([
-        LogInfo(msg=["Starting Gazebo with world: ", world_path]),
-        gzserver,
-        gzclient,
-        # return handles if you want to hook event handlers; otherwise keep local
-    ])
+    ld = LaunchDescription()
 
-def hunav_group(cfg, paths):
-    loader = Node(
+    ld.add_action(DeclareLaunchArgument("world", default_value="doors_hallway.world"))
+    ld.add_action(DeclareLaunchArgument("scenario", default_value="agents_doors_hallway.yaml"))
+    ld.add_action(DeclareLaunchArgument("use_humans", default_value="true"))
+    ld.add_action(DeclareLaunchArgument("headless", default_value="false"))
+    ld.add_action(DeclareLaunchArgument("use_gazebo_obs", default_value="true"))
+    ld.add_action(DeclareLaunchArgument("update_rate", default_value="100.0"))
+    ld.add_action(DeclareLaunchArgument("robot_name", default_value="turtlebot3_waffle"))
+    ld.add_action(DeclareLaunchArgument("global_frame_to_publish", default_value="map"))
+    ld.add_action(DeclareLaunchArgument("use_navgoal_to_start", default_value="false"))
+    ld.add_action(DeclareLaunchArgument("ignore_models", default_value="ground_plane"))
+    ld.add_action(DeclareLaunchArgument("verbose", default_value="true"))
+    ld.add_action(DeclareLaunchArgument(
+        "robot_sdf",
+        default_value=os.path.join(get_package_share_directory("nav2_bringup"), "worlds", "waffle.model"),
+    ))
+    ld.add_action(DeclareLaunchArgument("namespace", default_value=""))
+    ld.add_action(DeclareLaunchArgument("x_pose", default_value="0.0"))
+    ld.add_action(DeclareLaunchArgument("y_pose", default_value="0.0"))
+    ld.add_action(DeclareLaunchArgument("z_pose", default_value="0.01"))
+    ld.add_action(DeclareLaunchArgument("roll", default_value="0.0"))
+    ld.add_action(DeclareLaunchArgument("pitch", default_value="0.0"))
+    ld.add_action(DeclareLaunchArgument("yaw", default_value="0.0"))
+
+    my_gazebo_models = PathJoinSubstitution([FindPackageShare("hunav_gazebo_wrapper"), "models"])
+    ld.add_action(SetEnvironmentVariable(
+        name="GAZEBO_RESOURCE_PATH",
+        value=[EnvironmentVariable("GAZEBO_RESOURCE_PATH"), my_gazebo_models],
+    ))
+
+    hunav_loader = Node(
         package="hunav_agent_manager",
         executable="hunav_loader",
         output="screen",
-        parameters=[paths["scenario_path"]],
+        parameters=[scenario_path],
+        condition=IfCondition(use_humans),
+    )
+
+    hunav_manager = Node(
+        package="hunav_agent_manager",
+        executable="hunav_agent_manager",
+        name="hunav_agent_manager",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+        condition=IfCondition(use_humans),
     )
 
     worldgen = Node(
@@ -130,54 +82,86 @@ def hunav_group(cfg, paths):
         executable="hunav_gazebo_world_generator",
         output="screen",
         parameters=[
-            {"base_world": paths["base_world_path"]},
-            {"use_gazebo_obs": cfg["gz_obs"]},
-            {"update_rate": cfg["update_rate"]},
-            {"robot_name": cfg["robot_name"]},
-            {"global_frame_to_publish": cfg["global_frame_to_publish"]},
-            {"use_navgoal_to_start": cfg["use_navgoal_to_start"]},
-            {"ignore_models": cfg["ignore_models"]},
+            {"base_world": base_world_path},
+            {"use_gazebo_obs": LaunchConfiguration("use_gazebo_obs")},
+            {"update_rate": LaunchConfiguration("update_rate")},
+            {"robot_name": LaunchConfiguration("robot_name")},
+            {"global_frame_to_publish": LaunchConfiguration("global_frame_to_publish")},
+            {"use_navgoal_to_start": LaunchConfiguration("use_navgoal_to_start")},
+            {"ignore_models": LaunchConfiguration("ignore_models")},
+        ],
+        condition=IfCondition(use_humans),
+    )
+
+    gzserver = ExecuteProcess(
+        cmd=[
+            "gzserver",
+            generated_world_path,
+            "-s", "libgazebo_ros_init.so",
+            "-s", "libgazebo_ros_factory.so",
+            "--ros-args",
+            "--params-file", scenario_path,
+        ],
+        output="screen",
+        on_exit=Shutdown(),
+        condition=IfCondition(use_humans),
+    )
+
+    gzserver_nohumans = ExecuteProcess(
+        cmd=[
+            "gzserver",
+            base_world_path,
+            "-s", "libgazebo_ros_init.so",
+            "-s", "libgazebo_ros_factory.so",
+        ],
+        output="screen",
+        on_exit=Shutdown(),
+        condition=UnlessCondition(use_humans),
+    )
+
+    gzclient = ExecuteProcess(
+        cmd=["gzclient"],
+        output="screen",
+        on_exit=Shutdown(),
+        condition=UnlessCondition(headless),
+    )
+
+    robot_spawn = Node(
+        package="gazebo_ros",
+        executable="spawn_entity.py",
+        output="screen",
+        arguments=[
+            "-entity", LaunchConfiguration("robot_name"),
+            "-file", LaunchConfiguration("robot_sdf"),
+            "-robot_namespace", LaunchConfiguration("namespace"),
+            "-x", LaunchConfiguration("x_pose"),
+            "-y", LaunchConfiguration("y_pose"),
+            "-z", LaunchConfiguration("z_pose"),
+            "-R", LaunchConfiguration("roll"),
+            "-P", LaunchConfiguration("pitch"),
+            "-Y", LaunchConfiguration("yaw"),
         ],
     )
 
-    return {"loader": loader, "worldgen": worldgen, "group": GroupAction([loader, worldgen])}
-
-
-def generate_launch_description():
-    ld = LaunchDescription()
-
-    for a in declare_args():
-        ld.add_action(a)
-
-    cfg = make_cfg()
-    paths = make_paths(cfg)
-    hunav = hunav_group(cfg, paths)
-
-    ld.add_action(GroupAction([hunav["group"]], condition=IfCondition(cfg["use_humans"])))
+    ld.add_action(hunav_loader)
+    ld.add_action(hunav_manager)
 
     ld.add_action(RegisterEventHandler(
-        OnProcessExit(
-            target_action=hunav["worldgen"],
-            on_exit=[
-                LogInfo(msg="Worldgen finished. Launching Gazebo (generated world)."),
-                gazebo_group(paths["generated_world_path"], cfg),
-            ],
+        OnProcessStart(
+            target_action=hunav_loader,
+            on_start=[TimerAction(period=2.0, actions=[worldgen])],
         )
     ))
 
-    # Humans disabled: start gazebo immediately with base world
-    ld.add_action(
-        GroupAction(
-            [gazebo_group(paths["base_world_path"], cfg)],
-            condition=UnlessCondition(cfg["use_humans"]),
+    ld.add_action(RegisterEventHandler(
+        OnProcessStart(
+            target_action=worldgen,
+            on_start=[TimerAction(period=2.0, actions=[gzserver])],
         )
-    )
+    ))
 
-    # 5) spawn robot after gzserver starts (simple start-hook)
-    # In practice you’d keep gzserver handle; if you need reliability, trigger on service availability.
-    # Here’s the typical pattern when you *do* have a gzserver action handle:
-    # ld.add_action(RegisterEventHandler(OnProcessStart(target_action=gzserver, on_start=[robot_spawn_group(cfg)])))
-
-    # If you can’t easily hook it, a small delay is a fallback, but readiness is better.
+    ld.add_action(gzserver_nohumans)
+    ld.add_action(gzclient)
+    ld.add_action(TimerAction(period=4.0, actions=[robot_spawn]))
 
     return ld
