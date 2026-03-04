@@ -1,6 +1,6 @@
 hunav_loader:
   ros__parameters:
-    map: warehouse
+    map: doors_hallway
     publish_people: true
     agents:
       - worker1

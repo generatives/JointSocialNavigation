@@ -63,3 +63,11 @@ rosdep update
 rosdep install -i --from-path src --rosdistro humble -y
 colcon build --symlink-install
 ```
+
+
+## Social Simulator
+
+```
+colcon build --symlink-install --packages-skip zed_isaac_ros_nitros_sub zed_isaac_ros_april_tag
+colcon build --symlink-install --packages-select social_simulator
+```
