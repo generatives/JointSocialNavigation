@@ -17,16 +17,42 @@ class ScenarioMap:
     robot_goals: list[tuple[int, int]]
 
     @staticmethod
+    def build_empty() -> "ScenarioMap":
+        height, width = 20, 20
+        grid = np.zeros((height, width), dtype=np.int8)
+        grid[:, :] = FREE
+
+        human_starts = []
+        human_ends = []
+        robot_start = (0, 0)
+        robot_goals = []
+        return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
+
+    @staticmethod
     def build_default() -> "ScenarioMap":
-        height, width = 9, 18
+        height, width = 18, 36
         grid = np.zeros((height, width), dtype=np.int8)
         grid[:, :] = WALL
-        grid[3:6, :] = FREE
-        grid[:, 10:13] = FREE
+        grid[6:12, :] = FREE
+        grid[:, 20:26] = FREE
 
-        human_starts = [(17, 3), (0, 3)]
-        human_ends = [(10, 0), (10, 8)]
-        robot_start = (0, 5)
+        human_starts = [(35, 6), (0, 6)]
+        human_ends = [(20, 0), (20, 17)]
+        robot_start = (0, 10)
+        robot_goals = []
+        return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
+
+    @staticmethod
+    def build_hallway_crossing() -> "ScenarioMap":
+        height, width = 18, 18
+        grid = np.zeros((height, width), dtype=np.int8)
+        grid[:, :] = WALL
+        grid[6:12, :] = FREE
+        grid[:, 6:12] = FREE
+
+        human_starts = [(8, 0)]
+        human_ends = [(8, 17)]
+        robot_start = (0, 8)
         robot_goals = []
         return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
 

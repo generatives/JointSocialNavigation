@@ -27,4 +27,5 @@
         "**/install": true,
         "**/log": true
     },
+    "ROS2.distro": "humble",
 }

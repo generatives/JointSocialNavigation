@@ -5,9 +5,7 @@ import time
 
 import numpy as np
 
-from .agents import Crowd, MCTSRobotAI, Robot, RobotAI
 from .constants import WALL
-from .map import ScenarioMap
 from .pygame_threaded import (
     Circle,
     DrawCommand,
@@ -20,22 +18,15 @@ from .pygame_threaded import (
     Text,
     ThreadedPygameRuntime,
 )
+from .simulation import NavigationSimulation
 
 
 class Simulator:
     def __init__(self) -> None:
-        self.scenario = ScenarioMap.build_default()
-        robot_start = self.scenario.cell_to_world(self.scenario.robot_start)
-        self.robot = Robot(position=robot_start.copy(), theta=0.0)
-        self.robot_ai = RobotAI(self.scenario)
-        self.crowd = Crowd(max_humans=220, scenario=self.scenario)
-        self.mcts_robot_ai = MCTSRobotAI(self.scenario, self.crowd)
-        self.control_modes = ("MANUAL", "ROBOT_AI", "MCTS_ROBOT_AI")
-        self.control_mode_idx = 1
-
+        self.simulation = NavigationSimulation(control_mode="ROBOT_AI")
         self.cell_px = 24
         self.runtime = ThreadedPygameRuntime(
-            window_size=(self.scenario.width * self.cell_px, self.scenario.height * self.cell_px),
+            window_size=(self.simulation.scenario.width * self.cell_px, self.simulation.scenario.height * self.cell_px),
             title="Crowded Navigation Simulator",
             font_name="consolas",
             font_size=18,
@@ -45,10 +36,8 @@ class Simulator:
     def run(self) -> None:
         self.runtime.start()
         try:
-            # Run for a few seconds to get some people in the scene
             base_dt = 1.0 / 30.0
-            for _ in range(int(1.0 / base_dt * 6)):
-                self._update(base_dt)
+            self.simulation.warmup(6.0, dt=base_dt)
 
             running = True
             frame_period = 1.0 / 30.0
@@ -73,34 +62,18 @@ class Simulator:
         if snapshot.quit_requested:
             return False
         if snapshot.tab_pressed:
-            prev_mode = self.control_modes[self.control_mode_idx]
-            self.control_mode_idx = (self.control_mode_idx + 1) % len(self.control_modes)
-            next_mode = self.control_modes[self.control_mode_idx]
-            if prev_mode == "ROBOT_AI" and next_mode != "ROBOT_AI":
-                self.robot.path = []
-                self.robot.path_ptr = 0
-        if self.control_modes[self.control_mode_idx] != "MANUAL":
+            self.simulation.cycle_control_mode()
+        if self.simulation.control_mode != "MANUAL":
             for click in snapshot.mouse_clicks:
                 clicked = self._px_to_cell(click.pos)
-                if click.button == 1 and self.scenario.is_free(clicked):
-                    self.robot_ai.set_manual_goal(clicked)
-                    self.mcts_robot_ai.set_manual_goal(clicked)
-                    self.robot.path = []
-                    self.robot.path_ptr = 0
+                if click.button == 1 and self.simulation.scenario.is_free(clicked):
+                    self.simulation.set_goal(clicked)
                 if click.button == 3:
-                    self.robot_ai.clear_manual_goal()
-                    self.mcts_robot_ai.clear_manual_goal()
-                    self.robot.path = []
-                    self.robot.path_ptr = 0
+                    self.simulation.clear_goal()
         return True
 
     def _update(self, dt: float) -> None:
-        mode = self.control_modes[self.control_mode_idx]
-        if mode == "ROBOT_AI":
-            self.robot_ai.update(self.robot, dt)
-        elif mode == "MCTS_ROBOT_AI":
-            self.mcts_robot_ai.update(self.robot, dt)
-        else:
+        if self.simulation.control_mode == "MANUAL":
             v = 0.0
             w = 0.0
             if self.input_snapshot.up_pressed:
@@ -111,17 +84,19 @@ class Simulator:
                 w -= 2.5
             if self.input_snapshot.right_pressed:
                 w += 2.5
-            self.robot.command_v = v
-            self.robot.command_w = w
-
-        self.robot.step(dt, self.scenario)
-        self.crowd.update(dt, self.robot)
+            self.simulation.update(dt, manual_command=(v, w))
+            return
+        self.simulation.update(dt)
 
     def _draw(self) -> None:
+        scenario = self.simulation.scenario
+        crowd = self.simulation.crowd
+        robot = self.simulation.robot
+
         commands = [Fill((237, 242, 245))]
-        for y in range(self.scenario.height):
-            for x in range(self.scenario.width):
-                if self.scenario.grid[y, x] == WALL:
+        for y in range(scenario.height):
+            for x in range(scenario.width):
+                if scenario.grid[y, x] == WALL:
                     commands.append(
                         Rect(
                             x=x * self.cell_px,
@@ -143,28 +118,25 @@ class Simulator:
                         )
                     )
 
-        self._draw_markers(commands, self.scenario.human_starts, (44, 120, 230))
-        self._draw_markers(commands, self.scenario.human_ends, (61, 184, 112))
-        goal = self.robot_ai.manual_goal if self.robot_ai.manual_goal is not None else self.mcts_robot_ai.manual_goal
-        if goal is not None:
-            self._draw_markers(commands, [goal], (235, 120, 50))
+        self._draw_markers(commands, scenario.human_starts, (44, 120, 230))
+        self._draw_markers(commands, scenario.human_ends, (61, 184, 112))
+        if self.simulation.goal is not None:
+            self._draw_markers(commands, [self.simulation.goal], (235, 120, 50))
 
-        active_idxs = np.flatnonzero(self.crowd.active)
+        active_idxs = np.flatnonzero(crowd.active)
         for idx in active_idxs:
-            self._draw_circle(commands, self.crowd.positions[idx], float(self.crowd.radius[idx]), (58, 138, 246))
+            self._draw_circle(commands, crowd.positions[idx], float(crowd.radius[idx]), (58, 138, 246))
 
-        if self.robot.path and len(self.robot.path) >= 2:
-            points = [self._to_px(self.scenario.cell_to_world(c)) for c in self.robot.path]
+        if robot.path and len(robot.path) >= 2:
+            points = [self._to_px(scenario.cell_to_world(c)) for c in robot.path]
             commands.append(Lines(points=points, color=(201, 85, 73), closed=False, width=2))
 
-        self._draw_circle(commands, self.robot.position, self.robot.radius, (212, 63, 44))
-        heading = self.robot.position + self.robot.forward() * (self.robot.radius + 0.45)
-        commands.append(
-            Line(start=self._to_px(self.robot.position), end=self._to_px(heading), color=(24, 27, 28), width=3)
-        )
+        self._draw_circle(commands, robot.position, robot.radius, (212, 63, 44))
+        heading = robot.position + robot.forward() * (robot.radius + 0.45)
+        commands.append(Line(start=self._to_px(robot.position), end=self._to_px(heading), color=(24, 27, 28), width=3))
 
-        mode = self.control_modes[self.control_mode_idx]
-        manual_goal = "None" if goal is None else f"{goal[0]},{goal[1]}"
+        mode = self.simulation.control_mode
+        manual_goal = "None" if self.simulation.goal is None else f"{self.simulation.goal[0]},{self.simulation.goal[1]}"
         commands.append(
             Text(
                 text=f"Mode: {mode} | TAB cycle | LMB set AI goal | RMB clear | goal: {manual_goal}",
@@ -182,7 +154,7 @@ class Simulator:
         color: tuple[int, int, int],
     ) -> None:
         for cell in cells:
-            center = self._to_px(self.scenario.cell_to_world(cell))
+            center = self._to_px(self.simulation.scenario.cell_to_world(cell))
             commands.append(Circle(center=center, radius=self.cell_px // 4, color=color, width=2))
 
     def _draw_circle(
@@ -206,6 +178,6 @@ class Simulator:
     def _px_to_cell(self, px_pos: tuple[int, int]) -> tuple[int, int]:
         x = int(math.floor(px_pos[0] / self.cell_px))
         y = int(math.floor(px_pos[1] / self.cell_px))
-        x = int(np.clip(x, 0, self.scenario.width - 1))
-        y = int(np.clip(y, 0, self.scenario.height - 1))
+        x = int(np.clip(x, 0, self.simulation.scenario.width - 1))
+        y = int(np.clip(y, 0, self.simulation.scenario.height - 1))
         return x, y
