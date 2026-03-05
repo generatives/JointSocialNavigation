@@ -1,6 +1,6 @@
 hunav_loader:
   ros__parameters:
-    map: doors_hallway
+    map: intersection_hallway
     publish_people: true
     agents:
       - worker1
@@ -25,8 +25,8 @@ hunav_loader:
         social_force_factor: 5.0
         other_force_factor: 20.0
       init_pose:
-        x: 0.0
-        y: 0.0
+        x: -9.5
+        y: -1.0
         z: 1.250000
         h: 0.0
       goal_radius: 0.3
@@ -34,13 +34,23 @@ hunav_loader:
       goals:
         - g0
         - g1
+        - g2
+        - g3
       g0:
         x: 9.5
-        y: 0.0
+        y: -1.0
         h: 1.250000
       g1:
+        x: 9.5
+        y: 1.0
+        h: 1.250000
+      g2:
         x: -9.5
-        y: 0.0
+        y: 1.0
+        h: 1.250000
+      g3:
+        x: -9.5
+        y: -1.0
         h: 1.250000
     worker2:
       id: 2
@@ -60,8 +70,8 @@ hunav_loader:
         social_force_factor: 5.0
         other_force_factor: 20.0
       init_pose:
-        x: -4.0
-        y: -8.0
+        x: 9.5
+        y: 1.0
         z: 1.250000
         h: 0.0
       goal_radius: 0.3
@@ -70,17 +80,22 @@ hunav_loader:
         - g0
         - g1
         - g2
+        - g3
       g0:
-        x: -8.0
-        y: 8.0
+        x: -9.5
+        y: 1.0
         h: 1.250000
       g1:
-        x: 4.0
-        y: -8.0
+        x: -9.5
+        y: -1.0
         h: 1.250000
       g2:
-        x: -4.0
-        y: -8.0
+        x: 9.5
+        y: -1.0
+        h: 1.250000
+      g3:
+        x: 9.5
+        y: 1.0
         h: 1.250000
     worker3:
       id: 3
@@ -100,8 +115,8 @@ hunav_loader:
         social_force_factor: 5.0
         other_force_factor: 20.0
       init_pose:
-        x: 6.0
-        y: 8.0
+        x: -1.0
+        y: 9.5
         z: 1.250000
         h: 0.0
       goal_radius: 0.3
@@ -112,20 +127,20 @@ hunav_loader:
         - g2
         - g3
       g0:
-        x: 6.0
-        y: 0.0
+        x: -1.0
+        y: -9.5
         h: 1.250000
       g1:
-        x: -9.0
-        y: 1.0
+        x: 1.0
+        y: -9.5
         h: 1.250000
       g2:
-        x: 6.0
-        y: 0.0
+        x: 1.0
+        y: 9.5
         h: 1.250000
       g3:
-        x: 6.0
-        y: 8.0
+        x: -1.0
+        y: 9.5
         h: 1.250000
     worker4:
       id: 4
@@ -145,8 +160,8 @@ hunav_loader:
         social_force_factor: 5.0
         other_force_factor: 20.0
       init_pose:
-        x: -4.0
-        y: 8.0
+        x: 1.0
+        y: -9.5
         z: 1.250000
         h: 0.0
       goal_radius: 0.3
@@ -156,29 +171,19 @@ hunav_loader:
         - g1
         - g2
         - g3
-        - g4
-        - g5
       g0:
-        x: -5.0
-        y: 0.0
+        x: 1.0
+        y: 9.5
         h: 1.250000
       g1:
-        x: 6.0
-        y: 0.0
+        x: -1.0
+        y: 9.5
         h: 1.250000
       g2:
-        x: 6.0
-        y: 6.0
+        x: -1.0
+        y: -9.5
         h: 1.250000
       g3:
-        x: 6.0
-        y: 0.0
-        h: 1.250000
-      g4:
-        x: -5.0
-        y: 0.0
-        h: 1.250000
-      g5:
-        x: -4.0
-        y: 8.0
+        x: 1.0
+        y: -9.5
         h: 1.250000

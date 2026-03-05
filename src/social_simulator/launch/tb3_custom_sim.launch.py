@@ -25,13 +25,15 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration, PythonExpression, PathJoinSubstitution
 from launch_ros.actions import ComposableNodeContainer, Node
 from launch_ros.descriptions import ComposableNode
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
     # Get the launch directory
+    social_simulator_pkg = FindPackageShare("social_simulator")
     social_simulator_dir = get_package_share_directory("social_simulator")
     bringup_dir = get_package_share_directory("nav2_bringup")
     launch_dir = os.path.join(bringup_dir, "launch")
@@ -131,7 +133,7 @@ def generate_launch_description():
 
     declare_map_yaml_cmd = DeclareLaunchArgument(
         "map",
-        default_value=os.path.join(social_simulator_dir, "maps", "doors_hallway.yaml"),
+        default_value="doors_hallway.yaml",
         description="Full path to map file to load",
     )
 
@@ -287,13 +289,14 @@ def generate_launch_description():
         }.items(),
     )
 
+    map_yaml_path = PathJoinSubstitution([social_simulator_pkg, "maps", map_yaml_file])
     bringup_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(launch_dir, "bringup_launch.py")),
         launch_arguments={
             "namespace": namespace,
             "use_namespace": use_namespace,
             "slam": slam,
-            "map": map_yaml_file,
+            "map": map_yaml_path,
             "use_sim_time": use_sim_time,
             "params_file": params_file,
             "autostart": autostart,

@@ -73,7 +73,14 @@ colcon build --symlink-install --packages-skip zed_isaac_ros_nitros_sub zed_isaa
 colcon build --symlink-install --packages-select social_simulator
 ```
 
-To run the simulator:
+To run the simulator (I suggest to use tmux):
 ```
-ros2 launch social_simulator simulator.launch.py world:=doors_hallway
+ros2 launch social_simulator simulator.launch.py world:=doors_hallway.world scenario:=agents_doors_hallway.yaml
+ros2 launch social_simulator tb3_custom_sim.launch.py map:=doors_hallway.yaml
+ros2 launch social_simulator hudet.launch.py scenario_params_file:=agents_doors_hallway.yaml
+```
+
+Teleop command:
+```
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
 ```
