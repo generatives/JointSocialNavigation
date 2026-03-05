@@ -9,13 +9,13 @@ from launch.actions import (
     SetEnvironmentVariable,
     Shutdown,
     TimerAction,
+    OpaqueFunction,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessStart
 from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-
 
 def generate_launch_description():
     world_dir = FindPackageShare("social_simulator")
@@ -33,6 +33,7 @@ def generate_launch_description():
 
     ld.add_action(DeclareLaunchArgument("world", default_value="doors_hallway.world"))
     ld.add_action(DeclareLaunchArgument("scenario", default_value="agents_doors_hallway.yaml"))
+    ld.add_action(DeclareLaunchArgument("map_path", default_value="doors_hallway.yaml", description="Map path to use"))
     ld.add_action(DeclareLaunchArgument("use_humans", default_value="true"))
     ld.add_action(DeclareLaunchArgument("headless", default_value="false"))
     ld.add_action(DeclareLaunchArgument("use_gazebo_obs", default_value="true"))

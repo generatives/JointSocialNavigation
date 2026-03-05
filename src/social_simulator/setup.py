@@ -12,6 +12,8 @@ data_files = [
     (os.path.join("share", package_name, "launch"), glob("launch/*")),
     (os.path.join("share", package_name, "config"), glob("config/*")),
     (os.path.join("share", package_name, "scenarios"), glob("scenarios/*")),
+    (os.path.join("share", package_name, "rviz"), glob("rviz/*")),
+    (os.path.join("share", package_name, "params"), glob("params/*")),
 ]
 
 for filepath in glob("models/**/*", recursive=True):
