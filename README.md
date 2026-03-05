@@ -67,7 +67,13 @@ colcon build --symlink-install
 
 ## Social Simulator
 
+First build:
 ```
 colcon build --symlink-install --packages-skip zed_isaac_ros_nitros_sub zed_isaac_ros_april_tag
 colcon build --symlink-install --packages-select social_simulator
+```
+
+To run the simulator:
+```
+ros2 launch social_simulator simulator.launch.py world:=doors_hallway
 ```

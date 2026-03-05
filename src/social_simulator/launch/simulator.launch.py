@@ -9,6 +9,7 @@ from launch.actions import (
     SetEnvironmentVariable,
     Shutdown,
     TimerAction,
+    OpaqueFunction,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessStart
@@ -16,6 +17,64 @@ from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJ
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
+from hunavis.utils import goal_from_params
+
+def add_people_visualizer(context, social_simulator_dir, scenario_file, *args, **kwargs):
+    scenario_params_file_val = scenario_file.perform(context)
+    scenario_params_file_path = os.path.join(social_simulator_dir, "scenarios", scenario_params_file_val)
+
+    humans_goals_str = goal_from_params(scenario_params_file_path)
+    people_visualizer_node = Node(
+        package="hunavis",
+        executable="people_visualizer",
+        parameters=[
+            {"use_simulator": True},
+            {"goals": humans_goals_str},
+        ],
+    )
+    return [people_visualizer_node]
+
+def add_rviz(context, social_simulator_dir, run_rviz, rviz_file, *args, **kwargs):
+    rviz_file_val = rviz_file.perform(context)
+    
+    rviz_file_val_path = os.path.join(social_simulator_dir, "rviz", rviz_file_val)
+    # rviz_file_val_path = "/workspaces/JointSocialNavigation/src/social_simulator/rviz/default_sim_view.rviz"
+    print("#################### PATH: ", rviz_file_val_path)
+    rviz_node = Node(
+        condition=IfCondition(run_rviz),
+        package="rviz2",
+        executable="rviz2",
+        arguments=["-d", rviz_file_val_path],
+        output={"both": "log"},
+    )
+
+    return [rviz_node]
+
+def add_map_server(context, world_dir_share, *args, **kwargs):
+    map_file = LaunchConfiguration("map_path").perform(context)
+    map_path_file = os.path.join(world_dir_share, "maps", map_file)
+
+    map_server_cmd = Node(
+        package="nav2_map_server",
+        executable="map_server",
+        output="screen",
+        parameters=[{"yaml_filename": map_path_file, "use_sim_time": True}],
+    )
+
+    lifecycle_manager_cmd = Node(
+        package="nav2_lifecycle_manager",
+        executable="lifecycle_manager",
+        name="lifecycle_manager",
+        output="screen",
+        emulate_tty=True,
+        parameters=[
+            {"use_sim_time": True},
+            {"autostart": True},
+            {"node_names": ["map_server"]},
+        ],
+    )
+
+    return [map_server_cmd, lifecycle_manager_cmd]
 
 def generate_launch_description():
     world_dir = FindPackageShare("social_simulator")
@@ -24,6 +83,8 @@ def generate_launch_description():
     scenario_file = LaunchConfiguration("scenario")
     use_humans = LaunchConfiguration("use_humans")
     headless = LaunchConfiguration("headless")
+    run_rviz = LaunchConfiguration("run_rviz")
+    rviz_file = LaunchConfiguration("rviz_file")
 
     base_world_path = PathJoinSubstitution([world_dir, "worlds", world_file])
     generated_world_path = PathJoinSubstitution([world_dir, "worlds", "generatedWorld.world"])
@@ -33,6 +94,7 @@ def generate_launch_description():
 
     ld.add_action(DeclareLaunchArgument("world", default_value="doors_hallway.world"))
     ld.add_action(DeclareLaunchArgument("scenario", default_value="agents_doors_hallway.yaml"))
+    ld.add_action(DeclareLaunchArgument("map_path", default_value="doors_hallway.yaml", description="Map path to use"))
     ld.add_action(DeclareLaunchArgument("use_humans", default_value="true"))
     ld.add_action(DeclareLaunchArgument("headless", default_value="false"))
     ld.add_action(DeclareLaunchArgument("use_gazebo_obs", default_value="true"))
@@ -53,6 +115,15 @@ def generate_launch_description():
     ld.add_action(DeclareLaunchArgument("roll", default_value="0.0"))
     ld.add_action(DeclareLaunchArgument("pitch", default_value="0.0"))
     ld.add_action(DeclareLaunchArgument("yaw", default_value="0.0"))
+    ld.add_action(DeclareLaunchArgument(
+                "run_rviz",
+                default_value="True",
+                description="Whether to use rviz.",
+                choices=["True", "False"]))
+    ld.add_action(DeclareLaunchArgument(
+                "rviz_file",
+                default_value="default_test_view.rviz",
+                description=("File containing rviz settings.")))
 
     my_gazebo_models = PathJoinSubstitution([FindPackageShare("hunav_gazebo_wrapper"), "models"])
     ld.add_action(SetEnvironmentVariable(
@@ -163,5 +234,27 @@ def generate_launch_description():
     ld.add_action(gzserver_nohumans)
     ld.add_action(gzclient)
     ld.add_action(TimerAction(period=4.0, actions=[robot_spawn]))
+
+    # social_simulator_dir_str = get_package_share_directory("social_simulator")
+    # ld.add_action(OpaqueFunction(function=lambda ctx: add_map_server(ctx, social_simulator_dir_str)))
+
+    # # Load list of human goals from the simulation parameters
+    # ld.add_action(OpaqueFunction(function=lambda ctx: add_people_visualizer(ctx, social_simulator_dir_str, scenario_file)))
+    # # ld.add_action(OpaqueFunction(function=lambda ctx: add_rviz(ctx, social_simulator_dir_str, run_rviz, rviz_file)))
+    # ld.add_action(RegisterEventHandler(
+    #     OnProcessStart(
+    #         target_action=gzserver,
+    #         on_start=[
+    #             TimerAction(
+    #                 period=6.0,
+    #                 actions=[
+    #                     OpaqueFunction(
+    #                         function=lambda ctx: add_rviz(ctx, social_simulator_dir_str, run_rviz, rviz_file)
+    #                     )
+    #                 ],
+    #             )
+    #         ],
+    #     )
+    # ))
 
     return ld
