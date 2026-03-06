@@ -21,7 +21,7 @@ from .pygame_threaded import (
 from .simulation import NavigationSimulation
 
 
-class Simulator:
+class SimulatorUI:
     def __init__(self) -> None:
         self.simulation = NavigationSimulation(control_mode="ROBOT_AI")
         self.cell_px = 24

@@ -100,10 +100,10 @@ class _Node:
         self.parent = parent
         self.actions = actions
         # First index is agent, second is action
+        self.visits = 0
         self.visits_by_action: List[List[int]] = [[0] * action_count for action_count in config.num_actions]
         self.value_by_action: List[List[float]] = [[0.0] * action_count for action_count in config.num_actions]
         self._children: Dict[int, "_Node"] = {}
-        self.visits = 0
         self._fully_expanded = False
 
     def _get_child_index(self, actions: List[int]):
