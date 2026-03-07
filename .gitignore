@@ -59,7 +59,6 @@ log/
 site/
 
 # Source folders
-src/*
 py/
 
 # Misc files
