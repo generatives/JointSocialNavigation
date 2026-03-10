@@ -23,8 +23,8 @@ from .simulation import NavigationSimulation
 
 class SimulatorUI:
     def __init__(self) -> None:
-        self.simulation = NavigationSimulation(control_mode="ROBOT_AI")
-        self.cell_px = 24
+        self.simulation = NavigationSimulation(control_mode="ROBOT_AI", max_humans=1)
+        self.cell_px = 24*3
         self.runtime = ThreadedPygameRuntime(
             window_size=(self.simulation.scenario.width * self.cell_px, self.simulation.scenario.height * self.cell_px),
             title="Crowded Navigation Simulator",

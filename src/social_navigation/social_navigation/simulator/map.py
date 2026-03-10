@@ -56,6 +56,25 @@ class ScenarioMap:
         robot_goals = []
         return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
 
+    @staticmethod
+    def build_narrow_hallway() -> "ScenarioMap":
+        height, width = 18, 36
+        grid = np.zeros((height, width), dtype=np.int8)
+        grid[:, :] = WALL
+        midpoint = height//2
+        endpoint = width - 1
+
+        l = midpoint-1
+        r = midpoint+2
+        grid[l:r, :] = FREE
+        # grid[:, 6:12] = FREE
+
+        human_starts = [(0, midpoint)]
+        human_ends = [(endpoint, midpoint)]
+        robot_start = (endpoint, midpoint)
+        robot_goals = []
+        return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
+
     @property
     def shape(self) -> tuple[int, int]:
         return self.grid.shape
