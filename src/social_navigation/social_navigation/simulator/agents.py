@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass, field
+from typing import Dict, List
 
 import numpy as np
 
@@ -143,6 +144,8 @@ class MCTSRobotAI:
         self.replan_timer = 0.0
         self.manual_goal: tuple[int, int] | None = None
         self.intermediate_goal: np.ndarray | None = None
+        self.planned_robot_trajectory: List[float, float] | None = None
+        self.planned_human_trajectories: Dict[int, List[float, float]] | None = None
 
     def set_manual_goal(self, cell: tuple[int, int]) -> None:
         self.manual_goal = cell
@@ -174,6 +177,7 @@ class MCTSRobotAI:
         human_positions = self.crowd.positions[closest_humans]
         human_velocities = self.crowd.velocities[closest_humans]
         human_goals = human_positions + human_velocities * (human_speed * dt * tree_depth)
+        #human_goals = self.crowd.goals[closest_humans]
 
         robot_velocity = np.array([
             [np.cos(robot.theta), np.sin(robot.theta)]
@@ -208,7 +212,12 @@ class MCTSRobotAI:
             depth=0
         )
 
-        _, child_state, _ = mcts.search(root_state, num_simulations=500)
+        _, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=500)
+        self.planned_robot_trajectory = [state.positions[0].copy() for state in state_trajectory]
+        self.planned_human_trajectories = {
+            human_index: [state.positions[actor_index+1].copy() for state in state_trajectory]
+            for actor_index, human_index in enumerate(closest_humans)
+        }
         return child_state.positions[0].copy()
 
     def update(self, robot: Robot, dt: float) -> None:

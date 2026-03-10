@@ -226,7 +226,18 @@ class MCTS:
 
         best_actions = self._best_actions(root)
         child_node = root.get_child(best_actions)
-        return best_actions, child_node.state, stats
+        trajectory = self._get_most_visited_trajectory(child_node)
+        trajectory = [node.state for node in trajectory]
+        return best_actions, child_node.state, trajectory, stats
+    
+    def _get_most_visited_trajectory(self, node: _Node):
+        nodes = [node]
+        while not node.state.is_terminal():
+            best_actions = self._best_actions(node)
+            node = node.get_child(best_actions)
+            nodes.append(node)
+        return nodes
+
 
     def _best_actions(self, root: _Node) -> Action:
         actions = []
