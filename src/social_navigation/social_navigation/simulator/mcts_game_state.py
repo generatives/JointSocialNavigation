@@ -19,6 +19,7 @@ class MCTSGameStateConfig:
     map: ScenarioMap
     robot_radius: float
     human_radius: float
+    starting_distances: float
     orientation_changes: np.ndarray = field(init=False)
 
     def __post_init__(self) -> None:
@@ -38,7 +39,8 @@ class MCTSGameState(GameStateProtocol):
         "agent_goal_positions",
         "depth",
         "_accumulated_value",
-        "_is_terminal_cache"
+        "_collision_mask",
+        "_collision_occured"
     )
 
     def __init__(self,
@@ -54,7 +56,8 @@ class MCTSGameState(GameStateProtocol):
         self.positions = positions
         self.velocities = velocities
         self.agent_goal_positions = agent_goal_positions
-        self._is_terminal_cache = None
+        self._collision_mask = None
+        self._collision_occured = None
         self.depth = depth
         
         if accumulated_value is None:
@@ -90,33 +93,57 @@ class MCTSGameState(GameStateProtocol):
             self.config,
             self.depth + 1
         )
+    
+    def _get_invalid_state(self) -> bool:
+        if self._collision_occured is None:
+            self._collision_mask = np.array([
+                not self.config.map.position_is_free(self.positions[i, :])
+                for i in range(self.config.mcts_config.num_actors)
+            ])
+            self._collision_occured = any(self._collision_mask)
+
+        return self._collision_mask, self._collision_occured
+
 
     def is_terminal(self) -> bool:
-        if self._is_terminal_cache is None:
-            collided_with_wall = any(
-                (not self.config.map.position_is_free(self.positions[i, :]))
-                for i in range(self.config.mcts_config.num_actors)
-            )
-            reached_depth = self.depth >= self.config.mcts_config.max_depth
-            self._is_terminal_cache = collided_with_wall or reached_depth
-
-        return self._is_terminal_cache
+        _, is_invalid = self._get_invalid_state()
+        reached_depth = self.depth >= self.config.mcts_config.max_depth
+        return is_invalid or reached_depth
     
     def _uncomfortable_distance(self) -> np.ndarray:
         robot_position = self.positions[0, :]
         other_positions = self.positions[1:, :]
         distances = np.linalg.norm(other_positions - robot_position, axis=1)
         uncomfortable_distances = np.clip(distances, 0, self.config.uncomfortable_distance)
-        return np.sum(uncomfortable_distances)
+        total_distance = np.sum(uncomfortable_distances)
+
+        # We should scale the distances so that if the robot stays at least 1.5m away
+        # from all actors throughout the plan the total score will be 1.0.
+        # This makes it easier to trade this score against the goal reaching score
+        total_possible_distance = self.config.uncomfortable_distance * \
+            (self.config.mcts_config.num_actors - 1) * \
+            self.config.mcts_config.max_depth
+        score = total_distance / total_possible_distance
+        return score
     
     def _goal_distance(self) -> np.ndarray:
-        return np.linalg.norm(self.agent_goal_positions - self.positions, axis=1)
+        distances = np.linalg.norm(self.agent_goal_positions - self.positions, axis=1)
+
+        # scale by starting distances so that staying at the start is worth -1.0 and
+        # reaching the distination is worth 0.0
+        scores = -distances / self.config.starting_distances
+
+        return scores
     
     def _accumulate_value(self, value_accumulator) -> np.ndarray:
         value_accumulator = value_accumulator.copy()
         value_accumulator[0] += self._uncomfortable_distance()
         if self.is_terminal():
-            value_accumulator += -self._goal_distance()
+            value_accumulator += 0.1 * self._goal_distance()
+        
+        invalid_state_mask, _ = self._get_invalid_state()
+        value_accumulator[invalid_state_mask] = -1.0
+
         return value_accumulator
 
     def terminal_values(self) -> ValueMap:

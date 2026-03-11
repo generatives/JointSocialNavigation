@@ -183,7 +183,7 @@ class MCTS:
         #    "backpropogate": 0,
         #    "backpropogate_total_depth": 0
         #}
-
+        chosen_actions = []
         for i in range(num_simulations):
             #print(f"Starting simulation {i}")
             node = root
@@ -224,22 +224,39 @@ class MCTS:
             self._backpropagate(node, values)
             #print(f"Completed simulation {i}")
 
-        best_actions = self._best_actions(root)
+            if i % 100 == 0:
+                best_actions = self._most_visited_actions(root)
+                chosen_actions.append(best_actions[0])
+
+        #print(chosen_actions)
+
+        best_actions = self._most_visited_actions(root)
         child_node = root.get_child(best_actions)
         trajectory = self._get_most_visited_trajectory(child_node)
-        trajectory = [node.state for node in trajectory]
-        return best_actions, child_node.state, trajectory, stats
+        state_trajectory = [node.state for node in trajectory]
+        return best_actions, child_node.state, state_trajectory, stats
     
     def _get_most_visited_trajectory(self, node: _Node):
         nodes = [node]
         while not node.state.is_terminal():
-            best_actions = self._best_actions(node)
+            best_actions = self._highest_scoring_actions(node)
             node = node.get_child(best_actions)
             nodes.append(node)
         return nodes
 
 
-    def _best_actions(self, root: _Node) -> Action:
+    def _highest_scoring_actions(self, root: _Node) -> Action:
+        actions = []
+        for actor in range(self.config.num_actors):
+            values = root.value_by_action[actor]
+            visits = root.visits_by_action[actor]
+            action = max(range(len(values)), key=lambda i: values[i] / visits[i] if visits[i] > 0 else 0)
+            actions.append(action)
+
+        return actions
+
+
+    def _most_visited_actions(self, root: _Node) -> Action:
         actions = []
         for actor in range(self.config.num_actors):
             action, visits = max(enumerate(root.visits_by_action[actor]), key=lambda t: t[1])
@@ -275,7 +292,7 @@ class MCTS:
                 for action in range(self.config.num_actions[actor])
                 if node.visits_by_action[actor][action] == 0
             ]
-            if any(unvisited_actions):
+            if len(unvisited_actions) > 0:
                 selected_actions.append(self.rng.choice(unvisited_actions))
             else:
                 selected_actions.append(self.rng.choice(range(self.config.num_actions[actor])))
