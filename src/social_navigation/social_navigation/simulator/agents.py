@@ -302,6 +302,7 @@ class JointAStarRobotAI:
         blocking_penalty: float = 2.0,
         proximity_penalty: float = 3.5,
         proximity_threshold: int = 4,
+        belief_discount_blocking: float = 0.5,
     ) -> None:
         self.scenario = scenario
         self.crowd = crowd
@@ -311,6 +312,7 @@ class JointAStarRobotAI:
         self.blocking_penalty = blocking_penalty
         self.proximity_penalty = proximity_penalty
         self.proximity_threshold = proximity_threshold
+        self.belief_discount_blocking = belief_discount_blocking
         self.replan_timer = 0.0
         self.manual_goal: tuple[int, int] | None = None
         self.planned_robot_path: list[tuple[int, int]] = []
@@ -398,11 +400,26 @@ class JointAStarRobotAI:
         if human_cell is None or human_goal_cell is None or human_cell == robot_cell:
             return
 
+        # If the closest human has already formed a strong belief that the
+        # robot is heading toward its actual goal, it will anticipatorily
+        # yield (via _belief_conditioned_forces).  The robot can therefore
+        # plan less conservatively: reduce blocking_penalty so the planner
+        # doesn't over-invest in alcove manoeuvres that the human's own
+        # belief-driven behaviour has already resolved.
+        effective_blocking = self.blocking_penalty
+        best_belief = float(self.crowd.robot_goal_beliefs[closest].max())
+        if best_belief >= self.crowd.belief_yield_threshold:
+            best_idx = int(np.argmax(self.crowd.robot_goal_beliefs[closest]))
+            inferred_goal = self.crowd._robot_goal_candidates[best_idx]
+            actual_goal_world = self.scenario.cell_to_world(robot_goal)
+            if np.linalg.norm(inferred_goal - actual_goal_world) < 2.0:
+                effective_blocking *= self.belief_discount_blocking
+
         result = joint_a_star(
             self.scenario, robot_cell, robot_goal, human_cell, human_goal_cell,
             robot_move_penalty=self.robot_move_penalty,
             human_detour_penalty=self.human_detour_penalty,
-            blocking_penalty=self.blocking_penalty,
+            blocking_penalty=effective_blocking,
             proximity_penalty=self.proximity_penalty,
             proximity_threshold=self.proximity_threshold,
         )
@@ -450,6 +467,9 @@ class Crowd:
         robot_human_decay: float = 0.6,
         obstacle_amplitude: float = 1.0,
         obstacle_decay: float = 0.7,
+        belief_sigma: float = 0.5,
+        belief_yield_threshold: float = 0.5,
+        belief_lookahead: float = 1.5,
     ) -> None:
         self.max_humans = max_humans
         self.scenario = scenario
@@ -473,6 +493,37 @@ class Crowd:
         self.spawn_rate_per_sec = spawn_rate_per_sec
         self.spawn_accumulator = 0.0
 
+        # --- Belief state -------------------------------------------------
+        # Candidate destinations the robot might be heading to.
+        # We use human_starts ∪ human_ends as a proxy for all meaningful
+        # navigation goals in the environment.  At least two candidates are
+        # needed so the belief can discriminate; if none exist (e.g. empty
+        # map) belief logic is skipped.
+        _candidate_cells: list[tuple[int, int]] = list(
+            {*scenario.human_starts, *scenario.human_ends}
+        )
+        if _candidate_cells:
+            self._robot_goal_candidates = np.array(
+                [scenario.cell_to_world(c) for c in _candidate_cells],
+                dtype=np.float32,
+            )  # (num_candidates, 2)
+        else:
+            self._robot_goal_candidates = np.zeros((0, 2), dtype=np.float32)
+
+        num_candidates = self._robot_goal_candidates.shape[0]
+        # Uniform prior: each human believes any destination equally likely.
+        self.robot_goal_beliefs = np.full(
+            (max_humans, max(num_candidates, 1)),
+            1.0 / max(num_candidates, 1),
+            dtype=np.float32,
+        )
+        # Angular uncertainty of the Gaussian likelihood (radians).
+        self.belief_sigma = belief_sigma
+        # Minimum max-belief before anticipatory forces activate.
+        self.belief_yield_threshold = belief_yield_threshold
+        # Seconds ahead to project robot's position for anticipatory repulsion.
+        self.belief_lookahead = belief_lookahead
+
     def spawn(self) -> bool:
         if self.max_spawns is not None and self.total_spawned >= self.max_spawns:
             return False
@@ -494,6 +545,10 @@ class Crowd:
         self.paths[idx] = path
         self.path_ptr[idx] = 1 if len(path) > 1 else 0
         self.replan_timer[idx] = random.uniform(0.4, 1.2)
+        # Reset belief to uniform so new spawns don't inherit stale posteriors.
+        num_candidates = self._robot_goal_candidates.shape[0]
+        if num_candidates > 0:
+            self.robot_goal_beliefs[idx] = 1.0 / num_candidates
         self.total_spawned += 1
         return True
 
@@ -503,6 +558,9 @@ class Crowd:
         self.paths[idx] = []
         self.path_ptr[idx] = 0
         self.replan_timer[idx] = random.uniform(0.4, 1.2)
+        num_candidates = self._robot_goal_candidates.shape[0]
+        if num_candidates > 0:
+            self.robot_goal_beliefs[idx] = 1.0 / num_candidates
 
     def update(self, dt: float, robot: Robot) -> CrowdStepMetrics:
         robot_social_force_generated = 0.0
@@ -520,6 +578,9 @@ class Crowd:
             )
 
         self.replan_timer[active_idxs] -= dt
+        # Update each human's belief about the robot's intended destination
+        # before computing forces so anticipatory terms use fresh posteriors.
+        self._update_robot_goal_beliefs(robot)
         for i in active_idxs:
             self._replan_if_needed(int(i))
 
@@ -539,6 +600,7 @@ class Crowd:
         social_forces, force_generated = self._social_forces(active_idxs, robot)
         robot_social_force_generated += force_generated
         accel += social_forces
+        accel += self._belief_conditioned_forces(active_idxs, robot)
         self.velocities[active_idxs] += accel * dt
 
         speed = np.linalg.norm(self.velocities[active_idxs], axis=1)
@@ -592,6 +654,101 @@ class Crowd:
         if path:
             self.paths[idx] = path
             self.path_ptr[idx] = 1 if len(path) > 1 else 0
+
+    def _update_robot_goal_beliefs(self, robot: Robot) -> None:
+        """Bayesian update of each active human's belief about the robot's goal.
+
+        Likelihood model: the robot's heading direction is consistent with
+        moving toward goal g with probability proportional to a wrapped
+        Gaussian centred on the angle from the robot to g.  When the robot
+        is nearly stationary we skip the update — no directional information
+        can be extracted from a near-zero velocity.
+        """
+        num_candidates = self._robot_goal_candidates.shape[0]
+        if num_candidates == 0:
+            return
+
+        robot_speed = abs(robot.command_v)
+        if robot_speed < 0.1:
+            return
+
+        robot_angle = math.atan2(
+            robot.command_v * math.sin(robot.theta),
+            robot.command_v * math.cos(robot.theta),
+        )
+
+        # Direction from robot to each candidate goal.
+        diffs = self._robot_goal_candidates - robot.position  # (C, 2)
+        dists = np.linalg.norm(diffs, axis=1)                 # (C,)
+        valid = dists > 0.1
+
+        goal_angles = np.where(
+            valid,
+            np.arctan2(diffs[:, 1], diffs[:, 0]),
+            robot_angle,
+        )
+
+        # Wrapped angular difference, then Gaussian likelihood.
+        angular_diffs = goal_angles - robot_angle
+        angular_diffs = (angular_diffs + math.pi) % (2.0 * math.pi) - math.pi
+        likelihoods = np.exp(
+            -(angular_diffs ** 2) / (2.0 * self.belief_sigma ** 2)
+        )
+        likelihoods[~valid] = 0.0
+
+        active_idxs = np.flatnonzero(self.active)
+        for i in active_idxs:
+            updated = self.robot_goal_beliefs[i] * likelihoods
+            total = float(updated.sum())
+            if total > 1e-10:
+                self.robot_goal_beliefs[i] = updated / total
+
+    def _belief_conditioned_forces(
+        self, active_idxs: np.ndarray, robot: Robot
+    ) -> np.ndarray:
+        """Anticipatory repulsion from the robot's predicted future position.
+
+        When a human's belief is concentrated enough (max belief ≥
+        belief_yield_threshold) it knows where the robot is heading.  We add
+        a repulsive force from the robot's extrapolated position
+        belief_lookahead seconds in the future, pushing the human aside
+        *before* the robot arrives.  This is complementary to the reactive
+        SFM force (which acts on current distance) and enables anticipatory
+        yielding.
+        """
+        forces = np.zeros((active_idxs.size, 2), dtype=np.float32)
+
+        robot_speed = abs(robot.command_v)
+        if robot_speed < 0.1:
+            return forces
+
+        predicted_robot_pos = robot.position + np.array(
+            [
+                robot.command_v * math.cos(robot.theta),
+                robot.command_v * math.sin(robot.theta),
+            ],
+            dtype=np.float32,
+        ) * self.belief_lookahead
+
+        for j, i in enumerate(active_idxs):
+            if float(self.robot_goal_beliefs[i].max()) < self.belief_yield_threshold:
+                continue
+
+            diff = self.positions[i] - predicted_robot_pos
+            dist = float(np.linalg.norm(diff))
+            if dist < 1e-4 or dist > 4.0:
+                continue
+
+            direction = diff / dist
+            belief_strength = float(self.robot_goal_beliefs[i].max())
+            mag = (
+                self.robot_human_amplitude
+                * math.exp(-dist / self.robot_human_decay)
+                * belief_strength
+            )
+            forces[j] += direction * mag
+
+        return forces
 
     def _social_forces(self, active_idxs: np.ndarray, robot: Robot) -> tuple[np.ndarray, float]:
         n = active_idxs.size

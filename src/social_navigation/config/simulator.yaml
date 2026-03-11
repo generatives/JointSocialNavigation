@@ -19,7 +19,24 @@ crowd:
 control:
   # Which planner is active at startup.
   # Options: MANUAL | ROBOT_AI | MCTS_ROBOT_AI | JOINT_ASTAR_ROBOT_AI
-  default_mode: MCTS_ROBOT_AI
+  default_mode: JOINT_ASTAR_ROBOT_AI
+
+belief:
+  # Angular uncertainty of the Gaussian likelihood used when a human infers
+  # the robot's goal from its heading direction (radians).  Smaller values
+  # make humans more decisive but more sensitive to heading noise.
+  belief_sigma: 0.5
+  # Minimum value of the peak belief before anticipatory forces and the
+  # joint-planner discount activate.  0.5 means "human is at least 50%
+  # confident about the robot's destination".
+  belief_yield_threshold: 0.5
+  # Seconds ahead to project the robot's position for the anticipatory
+  # repulsive force.  Larger values give humans more warning time.
+  belief_lookahead: 1.5
+  # Factor applied to blocking_penalty in joint A* when the human has
+  # already inferred the robot's goal (and will therefore yield on its own).
+  # 0.5 halves the penalty, allowing the robot to plan more aggressively.
+  belief_discount_blocking: 0.5
 
 joint_astar:
   # Penalty added per step when the robot moves (prefer waiting).

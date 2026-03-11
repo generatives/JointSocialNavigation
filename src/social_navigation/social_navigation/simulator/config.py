@@ -38,6 +38,11 @@ class SimConfig:
     proximity_penalty: float = 3.5
     proximity_threshold: int = 4
     replan_period: float = 0.25
+    # Belief
+    belief_sigma: float = 0.5
+    belief_yield_threshold: float = 0.5
+    belief_lookahead: float = 1.5
+    belief_discount_blocking: float = 0.5
     # SFM
     human_human_amplitude: float = 6.0
     human_human_decay: float = 0.7
@@ -84,6 +89,10 @@ def load_config(path: str | Path | None = None) -> SimConfig:
         proximity_penalty=get("joint_astar", "proximity_penalty", 3.5),
         proximity_threshold=get("joint_astar", "proximity_threshold", 4),
         replan_period=get("joint_astar", "replan_period", 0.25),
+        belief_sigma=get("belief", "belief_sigma", 0.5),
+        belief_yield_threshold=get("belief", "belief_yield_threshold", 0.5),
+        belief_lookahead=get("belief", "belief_lookahead", 1.5),
+        belief_discount_blocking=get("belief", "belief_discount_blocking", 0.5),
         human_human_amplitude=get("sfm", "human_human_amplitude", 6.0),
         human_human_decay=get("sfm", "human_human_decay", 0.7),
         robot_human_amplitude=get("sfm", "robot_human_amplitude", 10.0),

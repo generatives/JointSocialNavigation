@@ -63,6 +63,9 @@ class NavigationSimulation:
             robot_human_decay=config.robot_human_decay,
             obstacle_amplitude=config.obstacle_amplitude,
             obstacle_decay=config.obstacle_decay,
+            belief_sigma=config.belief_sigma,
+            belief_yield_threshold=config.belief_yield_threshold,
+            belief_lookahead=config.belief_lookahead,
         )
         self.mcts_robot_ai = MCTSRobotAI(self.scenario, self.crowd)
         self.joint_astar_robot_ai = JointAStarRobotAI(
@@ -74,6 +77,7 @@ class NavigationSimulation:
             blocking_penalty=config.blocking_penalty,
             proximity_penalty=config.proximity_penalty,
             proximity_threshold=config.proximity_threshold,
+            belief_discount_blocking=config.belief_discount_blocking,
         )
         self.control_modes = CONTROL_MODES
         self.control_mode_idx = self.control_modes.index(config.default_mode)
