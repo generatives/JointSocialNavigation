@@ -274,23 +274,196 @@ class MCTSRobotAI:
             
 
 
+class JointAStarRobotAI:
+    """
+    Robot AI that plans via Joint State Space A*.
+
+    At each replan tick it:
+      1. Observes the robot's current grid cell and the closest active human's
+         current cell (from their continuous SFM position).
+      2. Calls joint_a_star, which assumes the human moves one cell per step
+         toward its goal — a deliberate simplification.  The actual human is
+         driven by SFM (social forces + wall avoidance), so their trajectory
+         will deviate.  Replanning every ``replan_period`` seconds corrects
+         this: the plan is always anchored to the human's real position.
+      3. Hands the planned robot path to the same proportional path-following
+         controller used by RobotAI.
+
+    Falls back to plain A* when no humans are active.
+    """
+
+    def __init__(
+        self,
+        scenario: ScenarioMap,
+        crowd: "Crowd",
+        replan_period: float = 0.25,
+        robot_move_penalty: float = 0.05,
+        human_detour_penalty: float = 0.5,
+        blocking_penalty: float = 2.0,
+        proximity_penalty: float = 3.5,
+        proximity_threshold: int = 4,
+    ) -> None:
+        self.scenario = scenario
+        self.crowd = crowd
+        self.replan_period = replan_period
+        self.robot_move_penalty = robot_move_penalty
+        self.human_detour_penalty = human_detour_penalty
+        self.blocking_penalty = blocking_penalty
+        self.proximity_penalty = proximity_penalty
+        self.proximity_threshold = proximity_threshold
+        self.replan_timer = 0.0
+        self.manual_goal: tuple[int, int] | None = None
+        self.planned_robot_path: list[tuple[int, int]] = []
+        self.planned_human_path: list[tuple[int, int]] = []
+
+    def set_manual_goal(self, cell: tuple[int, int]) -> None:
+        self.manual_goal = cell
+        self.replan_timer = 0.0
+
+    def clear_manual_goal(self) -> None:
+        self.manual_goal = None
+        self.replan_timer = 0.0
+        self.planned_robot_path = []
+        self.planned_human_path = []
+
+    def update(self, robot: Robot, dt: float) -> None:
+        self.replan_timer -= dt
+        if self.manual_goal is None:
+            robot.command_v = 0.0
+            robot.command_w = 0.0
+            robot.path = []
+            robot.path_ptr = 0
+            return
+
+        goal = self.manual_goal
+        robot_cell = self.scenario.nearest_free(self.scenario.world_to_cell(robot.position))
+        if robot_cell is None:
+            robot.command_v = 0.0
+            robot.command_w = 0.0
+            return
+
+        if np.linalg.norm(robot.position - self.scenario.cell_to_world(goal)) < 0.6:
+            robot.command_v = 0.0
+            robot.command_w = 0.0
+            return
+
+        path_exhausted = not robot.path or robot.path_ptr >= len(robot.path)
+        if self.replan_timer <= 0.0 or path_exhausted:
+            self.replan_timer = self.replan_period
+            self._replan(robot, robot_cell, goal)
+
+        if not robot.path or robot.path_ptr >= len(robot.path):
+            robot.command_v = 0.0
+            robot.command_w = 0.0
+            return
+
+        target_world = self.scenario.cell_to_world(robot.path[robot.path_ptr])
+        to_target = target_world - robot.position
+        if np.linalg.norm(to_target) < 0.35 and robot.path_ptr < len(robot.path) - 1:
+            robot.path_ptr += 1
+            target_world = self.scenario.cell_to_world(robot.path[robot.path_ptr])
+            to_target = target_world - robot.position
+
+        desired_heading = math.atan2(float(to_target[1]), float(to_target[0]))
+        heading_error = (desired_heading - robot.theta + math.pi) % (2.0 * math.pi) - math.pi
+        distance = float(np.linalg.norm(to_target))
+        robot.command_w = float(np.clip(2.3 * heading_error, -robot.max_omega, robot.max_omega))
+        speed_scale = max(0.0, 1.0 - abs(heading_error) / math.pi)
+        robot.command_v = float(np.clip(1.8 * distance * speed_scale, 0.0, robot.max_speed))
+
+
+    def _replan(self, robot: Robot, robot_cell: tuple[int, int], robot_goal: tuple[int, int]) -> None:
+        from social_navigation.joint_astar.joint_astar import joint_a_star
+
+        active = np.flatnonzero(self.crowd.active)
+        if active.size == 0:
+            path = a_star(self.scenario.grid, robot_cell, robot_goal)
+            if path:
+                robot.path = path
+                robot.path_ptr = 1 if len(path) > 1 else 0
+            self.planned_robot_path = list(robot.path)
+            self.planned_human_path = []
+            return
+
+        # Use the closest active human.
+        distances = np.linalg.norm(self.crowd.positions[active] - robot.position, axis=1)
+        closest = int(active[int(np.argmin(distances))])
+
+        human_cell = self.scenario.nearest_free(
+            self.scenario.world_to_cell(self.crowd.positions[closest])
+        )
+        human_goal_cell = self.scenario.nearest_free(
+            self.scenario.world_to_cell(self.crowd.goals[closest])
+        )
+        if human_cell is None or human_goal_cell is None or human_cell == robot_cell:
+            return
+
+        result = joint_a_star(
+            self.scenario, robot_cell, robot_goal, human_cell, human_goal_cell,
+            robot_move_penalty=self.robot_move_penalty,
+            human_detour_penalty=self.human_detour_penalty,
+            blocking_penalty=self.blocking_penalty,
+            proximity_penalty=self.proximity_penalty,
+            proximity_threshold=self.proximity_threshold,
+        )
+        if result and len(result.robot_path) > 1:
+            self.planned_robot_path = result.robot_path
+            self.planned_human_path = result.human_path
+
+            # result.robot_path[0] is the current cell; result.robot_path[1] is
+            # the planner's intended next cell for this tick.  If they are the
+            # same, the plan says "wait" — hold position.  If they differ, give
+            # the robot exactly that one cell as its next waypoint and let the
+            # next replan issue the following step.  This prevents the
+            # path-following controller from racing through all the repeated
+            # "wait" entries and driving the robot out of the alcove early.
+            next_cell = result.robot_path[1]
+            if next_cell == robot_cell:
+                # Hold position: a single-entry path terminates immediately and
+                # leaves the robot stationary until the replan timer fires.
+                robot.path = [robot_cell]
+                robot.path_ptr = 0
+            else:
+                robot.path = [robot_cell, next_cell]
+                robot.path_ptr = 1
+        else:
+            path = a_star(self.scenario.grid, robot_cell, robot_goal)
+            if path:
+                robot.path = path
+                robot.path_ptr = 1 if len(path) > 1 else 0
+            self.planned_robot_path = list(robot.path)
+            self.planned_human_path = []
+
+
 class Crowd:
-    def __init__(self, max_humans: int, scenario: ScenarioMap) -> None:
+    def __init__(
+        self,
+        max_humans: int,
+        scenario: ScenarioMap,
+        max_spawns: int | None = None,
+        spawn_rate_per_sec: float = 0.2,
+        pref_speed_min: float = 1.0,
+        pref_speed_max: float = 1.7,
+    ) -> None:
         self.max_humans = max_humans
         self.scenario = scenario
+        self.max_spawns = max_spawns  # None = unlimited
+        self.total_spawned = 0
         self.active = np.zeros(max_humans, dtype=bool)
         self.positions = np.zeros((max_humans, 2), dtype=np.float32)
         self.velocities = np.zeros((max_humans, 2), dtype=np.float32)
         self.goals = np.zeros((max_humans, 2), dtype=np.float32)
         self.radius = np.full(max_humans, 0.28, dtype=np.float32)
-        self.pref_speed = np.random.uniform(1.0, 1.7, size=max_humans).astype(np.float32)
+        self.pref_speed = np.random.uniform(pref_speed_min, pref_speed_max, size=max_humans).astype(np.float32)
         self.paths: list[list[tuple[int, int]]] = [[] for _ in range(max_humans)]
         self.path_ptr = np.zeros(max_humans, dtype=np.int32)
         self.replan_timer = np.random.uniform(0.2, 1.1, size=max_humans).astype(np.float32)
-        self.spawn_rate_per_sec = 0.2
+        self.spawn_rate_per_sec = spawn_rate_per_sec
         self.spawn_accumulator = 0.0
 
     def spawn(self) -> bool:
+        if self.max_spawns is not None and self.total_spawned >= self.max_spawns:
+            return False
         idxs = np.flatnonzero(~self.active)
         if idxs.size == 0:
             return False
@@ -309,6 +482,7 @@ class Crowd:
         self.paths[idx] = path
         self.path_ptr[idx] = 1 if len(path) > 1 else 0
         self.replan_timer[idx] = random.uniform(0.4, 1.2)
+        self.total_spawned += 1
         return True
 
     def despawn(self, idx: int) -> None:
@@ -414,7 +588,7 @@ class Crowd:
 
         a_h = 6.0
         b_h = 0.7
-        a_obs = 3.2
+        a_obs = 1.0
         b_obs = 0.7
 
         pos = self.positions[active_idxs]
@@ -436,6 +610,7 @@ class Crowd:
                 forces[j] -= force
 
         robot_pos = robot.position
+        robot_cell = self.scenario.world_to_cell(robot_pos)
         for i in range(n):
             diff = pos[i] - robot_pos
             dist = np.linalg.norm(diff)
@@ -444,7 +619,19 @@ class Crowd:
             direction = diff / dist
             combined = rad[i] + robot.radius
             penetration = combined - dist
-            mag = 10.0 * math.exp((combined - dist) / 0.6)
+
+            # Only apply social distancing force when the robot is on the
+            # human's optimal path (triangle inequality tight).  When the robot
+            # is in a side alcove the human doesn't need to divert, so we drop
+            # the exponential term and keep only the physical contact force.
+            human_cell = self.scenario.world_to_cell(pos[i])
+            human_goal_cell = self.scenario.world_to_cell(self.goals[active_idxs[i]])
+            h_to_r = abs(human_cell[0] - robot_cell[0]) + abs(human_cell[1] - robot_cell[1])
+            r_to_hg = abs(robot_cell[0] - human_goal_cell[0]) + abs(robot_cell[1] - human_goal_cell[1])
+            h_to_hg = abs(human_cell[0] - human_goal_cell[0]) + abs(human_cell[1] - human_goal_cell[1])
+            robot_is_blocking = h_to_r > 0 and (h_to_r + r_to_hg == h_to_hg)
+
+            mag = 10.0 * math.exp((combined - dist) / 0.6) if robot_is_blocking else 0.0
             if penetration > 0.0:
                 mag += penetration * 30.0
             force = direction * mag

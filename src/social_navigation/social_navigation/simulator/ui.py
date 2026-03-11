@@ -18,13 +18,16 @@ from .pygame_threaded import (
     Text,
     ThreadedPygameRuntime,
 )
+from .config import load_config
 from .simulation import NavigationSimulation
 
 
 class SimulatorUI:
     def __init__(self) -> None:
-        self.simulation = NavigationSimulation(control_mode="ROBOT_AI", max_humans=1)
-        self.cell_px = 24*3
+        config = load_config()
+        self.simulation = NavigationSimulation(config=config)
+        self.cell_px = config.cell_px
+        self._warmup_seconds = config.warmup_seconds
         self.runtime = ThreadedPygameRuntime(
             window_size=(self.simulation.scenario.width * self.cell_px, self.simulation.scenario.height * self.cell_px),
             title="Crowded Navigation Simulator",
@@ -37,7 +40,7 @@ class SimulatorUI:
         self.runtime.start()
         try:
             base_dt = 1.0 / 30.0
-            self.simulation.warmup(6.0, dt=base_dt)
+            self.simulation.warmup(self._warmup_seconds, dt=base_dt)
 
             running = True
             frame_period = 1.0 / 30.0
@@ -144,6 +147,15 @@ class SimulatorUI:
                 color=(12, 12, 12),
             )
         )
+
+        if self.simulation.control_mode == "JOINT_ASTAR_ROBOT_AI":
+            ai = self.simulation.joint_astar_robot_ai
+            if ai.planned_robot_path and len(ai.planned_robot_path) >= 2:
+                points = [self._to_px(self.simulation.scenario.cell_to_world(c)) for c in ai.planned_robot_path]
+                commands.append(Lines(points=points, color=(201, 85, 73), closed=False, width=2))
+            if ai.planned_human_path and len(ai.planned_human_path) >= 2:
+                points = [self._to_px(self.simulation.scenario.cell_to_world(c)) for c in ai.planned_human_path]
+                commands.append(Lines(points=points, color=(58, 138, 246), closed=False, width=2))
 
         if self.simulation.control_mode == "MCTS_ROBOT_AI":
             if self.simulation.mcts_robot_ai.planned_robot_trajectory:

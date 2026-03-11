@@ -4,10 +4,21 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .agents import Crowd, MCTSRobotAI, Robot, RobotAI
+from .agents import Crowd, JointAStarRobotAI, MCTSRobotAI, Robot, RobotAI
+from .config import SimConfig, load_config
 from .map import ScenarioMap
 
-CONTROL_MODES = ("MANUAL", "ROBOT_AI", "MCTS_ROBOT_AI")
+CONTROL_MODES = ("MANUAL", "ROBOT_AI", "MCTS_ROBOT_AI", "JOINT_ASTAR_ROBOT_AI")
+
+_MAP_BUILDERS = {
+    "empty": ScenarioMap.build_empty,
+    "default": ScenarioMap.build_default,
+    "hallway_crossing": ScenarioMap.build_hallway_crossing,
+    "hallway_collision": ScenarioMap.build_hallway_collision,
+    "narrow_hallway": ScenarioMap.build_narrow_hallway,
+    "narrow_hallway2": ScenarioMap.build_narrow_hallway2,
+    "narrow_hallway3": ScenarioMap.build_narrow_hallway3,
+}
 
 
 @dataclass(slots=True)
@@ -22,19 +33,43 @@ class NavigationSimulation:
     def __init__(
         self,
         *,
-        control_mode: str = "ROBOT_AI",
-        max_humans: int = 220,
+        config: SimConfig | None = None,
         scenario: ScenarioMap | None = None,
     ) -> None:
-        # self.scenario = scenario or ScenarioMap.build_hallway_crossing()
-        self.scenario = scenario or ScenarioMap.build_narrow_hallway()
+        if config is None:
+            config = load_config()
+        self.config = config
+
+        if scenario is not None:
+            self.scenario = scenario
+        else:
+            builder = _MAP_BUILDERS.get(config.map, ScenarioMap.build_hallway_crossing)
+            self.scenario = builder()
+
         robot_start = self.scenario.cell_to_world(self.scenario.robot_start)
-        self.robot = Robot(position=robot_start.copy(), theta=0.0)
+        self.robot = Robot(position=robot_start.copy(), theta=config.robot_theta)
         self.robot_ai = RobotAI(self.scenario)
-        self.crowd = Crowd(max_humans=max_humans, scenario=self.scenario)
+        self.crowd = Crowd(
+            max_humans=config.max_humans,
+            scenario=self.scenario,
+            max_spawns=config.max_spawns,
+            spawn_rate_per_sec=config.spawn_rate_per_sec,
+            pref_speed_min=config.pref_speed_min,
+            pref_speed_max=config.pref_speed_max,
+        )
         self.mcts_robot_ai = MCTSRobotAI(self.scenario, self.crowd)
+        self.joint_astar_robot_ai = JointAStarRobotAI(
+            self.scenario,
+            self.crowd,
+            replan_period=config.replan_period,
+            robot_move_penalty=config.robot_move_penalty,
+            human_detour_penalty=config.human_detour_penalty,
+            blocking_penalty=config.blocking_penalty,
+            proximity_penalty=config.proximity_penalty,
+            proximity_threshold=config.proximity_threshold,
+        )
         self.control_modes = CONTROL_MODES
-        self.control_mode_idx = self.control_modes.index(control_mode)
+        self.control_mode_idx = self.control_modes.index(config.default_mode)
         self.sim_time = 0.0
 
     @property
@@ -43,16 +78,16 @@ class NavigationSimulation:
 
     @property
     def goal(self) -> tuple[int, int] | None:
-        goal = self.robot_ai.manual_goal
-        if goal is not None:
-            return goal
-        return self.mcts_robot_ai.manual_goal
+        for ai in (self.robot_ai, self.mcts_robot_ai, self.joint_astar_robot_ai):
+            if ai.manual_goal is not None:
+                return ai.manual_goal
+        return None
 
     def cycle_control_mode(self) -> tuple[str, str]:
         prev_mode = self.control_mode
         self.control_mode_idx = (self.control_mode_idx + 1) % len(self.control_modes)
         next_mode = self.control_mode
-        if prev_mode == "ROBOT_AI" and next_mode != "ROBOT_AI":
+        if prev_mode != next_mode:
             self.robot.path = []
             self.robot.path_ptr = 0
         return prev_mode, next_mode
@@ -60,12 +95,14 @@ class NavigationSimulation:
     def set_goal(self, cell: tuple[int, int]) -> None:
         self.robot_ai.set_manual_goal(cell)
         self.mcts_robot_ai.set_manual_goal(cell)
+        self.joint_astar_robot_ai.set_manual_goal(cell)
         self.robot.path = []
         self.robot.path_ptr = 0
 
     def clear_goal(self) -> None:
         self.robot_ai.clear_manual_goal()
         self.mcts_robot_ai.clear_manual_goal()
+        self.joint_astar_robot_ai.clear_manual_goal()
         self.robot.path = []
         self.robot.path_ptr = 0
 
@@ -86,6 +123,8 @@ class NavigationSimulation:
             self.robot_ai.update(self.robot, dt)
         elif mode == "MCTS_ROBOT_AI":
             self.mcts_robot_ai.update(self.robot, dt)
+        elif mode == "JOINT_ASTAR_ROBOT_AI":
+            self.joint_astar_robot_ai.update(self.robot, dt)
         else:
             self.robot.command_v = manual_command[0]
             self.robot.command_w = manual_command[1]

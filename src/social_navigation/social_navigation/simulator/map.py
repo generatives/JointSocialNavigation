@@ -71,20 +71,61 @@ class ScenarioMap:
 
     @staticmethod
     def build_narrow_hallway() -> "ScenarioMap":
+        height, width = 18, 18
+        grid = np.zeros((height, width), dtype=np.int8)
+        grid[:, :] = WALL
+        midpoint = height//2
+        endpoint = width - 1
+
+        l = midpoint
+        r = midpoint+1
+        grid[l:r, :] = FREE
+        grid[10, 12] = FREE
+        # grid[10:12, 30:32] = FREE
+        # grid[:, 6:12] = FREE
+
+        human_starts = [(0, midpoint)]
+        human_ends = [(endpoint, midpoint)]
+        robot_start = (endpoint, midpoint)
+        robot_goals = []
+        return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
+    
+    @staticmethod
+    def build_narrow_hallway2() -> "ScenarioMap":
         height, width = 18, 36
         grid = np.zeros((height, width), dtype=np.int8)
         grid[:, :] = WALL
         midpoint = height//2
         endpoint = width - 1
 
-        l = midpoint-1
-        r = midpoint+2
+        l = midpoint
+        r = midpoint+1
         grid[l:r, :] = FREE
-        # grid[:, 6:12] = FREE
+        grid[10:12, 30:32] = FREE
+        grid[10:12, 25:27] = FREE
 
         human_starts = [(0, midpoint)]
         human_ends = [(endpoint, midpoint)]
         robot_start = (endpoint, midpoint)
+        robot_goals = []
+        return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
+    
+    @staticmethod
+    def build_narrow_hallway3() -> "ScenarioMap":
+        height, width = 18, 25
+        grid = np.zeros((height, width), dtype=np.int8)
+        grid[:, :] = WALL
+        midpoint = height//2
+        endpoint = width - 1
+
+        l = midpoint
+        r = midpoint+1
+        grid[l:r, :] = FREE
+        grid[10:12, 20:22] = FREE
+
+        human_starts = [(0, midpoint)]
+        human_ends = [(endpoint, midpoint)]
+        robot_start = (endpoint-10, midpoint)
         robot_goals = []
         return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
 

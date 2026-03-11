@@ -1,0 +1,53 @@
+# Simulator configuration
+# -------------------------
+# map: one of empty | default | hallway_crossing | hallway_collision |
+#             narrow_hallway | narrow_hallway2 | narrow_hallway3
+map: narrow_hallway
+
+robot:
+  # Starting orientation in radians.
+  # 0       = facing right (+x)
+  # pi/2    = facing down  (+y)
+  # pi      = facing left  (-x)
+  # -pi/2   = facing up    (-y)
+  theta: 3.14159
+
+crowd:
+  # Maximum number of humans that can be alive simultaneously.
+  max_humans: 2
+  # Total spawns allowed across the whole run.  Use null for unlimited.
+  max_spawns: 4
+  # Average spawns per second (fractional accumulator — does not apply
+  # when max_spawns is reached).
+  spawn_rate_per_sec: 0.2
+  # Preferred walking speed range [min, max] in world units/second.
+  pref_speed_min: 1.0
+  pref_speed_max: 1.7
+
+control:
+  # Which planner is active at startup.
+  # Options: MANUAL | ROBOT_AI | MCTS_ROBOT_AI | JOINT_ASTAR_ROBOT_AI
+  default_mode: MCTS_ROBOT_AI
+
+joint_astar:
+  # Penalty added per step when the robot moves (prefer waiting).
+  robot_move_penalty: 0.05
+  # Penalty added when the human steps away from its goal.
+  human_detour_penalty: 0.5
+  # Base magnitude of the blocking penalty (scaled by 1/distance when
+  # the robot occupies a cell on the human's shortest path).
+  blocking_penalty: 2.0
+  # Flat penalty added when the robot moves and would end up within
+  # proximity_threshold cells of the human.  Must exceed ~3.0 to
+  # discourage the robot from exiting the alcove while the human is close.
+  proximity_penalty: 3.5
+  # Distance threshold (cells) inside which proximity_penalty applies.
+  proximity_threshold: 4
+  # How often (seconds) the robot replans from its current position.
+  replan_period: 0.25
+
+display:
+  # Pixels per grid cell.  Increase for a larger window.
+  cell_px: 72
+  # Seconds of physics warm-up before the UI loop begins.
+  warmup_seconds: 6.0
