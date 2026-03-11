@@ -147,6 +147,7 @@ class MCTSRobotAI:
         self.intermediate_orientation_goal: float | None = None
         self.planned_robot_trajectory: List[float, float] | None = None
         self.planned_human_trajectories: Dict[int, List[float, float]] | None = None
+        self.planned_human_goal_estimates: Dict[int, np.ndarray] | None = None
 
     def set_manual_goal(self, cell: tuple[int, int]) -> None:
         self.manual_goal = cell
@@ -179,8 +180,12 @@ class MCTSRobotAI:
 
         human_positions = self.crowd.positions[closest_humans]
         human_velocities = self.crowd.velocities[closest_humans]
-        #human_goals = human_positions + human_velocities * (human_speed * dt * tree_depth)
-        human_goals = self.crowd.goals[closest_humans]
+        horizon = human_speed * dt * tree_depth
+        ema_vels = self.crowd.velocity_ema[closest_humans]
+        ema_speeds = np.linalg.norm(ema_vels, axis=1, keepdims=True)
+        moving = ema_speeds > 0.1
+        ema_dirs = np.where(moving, ema_vels / np.where(moving, ema_speeds, 1.0), 0.0)
+        human_goals = human_positions + ema_dirs * horizon
 
         robot_velocity = np.array([
             [np.cos(robot.theta), np.sin(robot.theta)]
@@ -221,6 +226,10 @@ class MCTSRobotAI:
         self.planned_robot_trajectory = [state.positions[0].copy() for state in state_trajectory]
         self.planned_human_trajectories = {
             human_index: [state.positions[actor_index+1].copy() for state in state_trajectory]
+            for actor_index, human_index in enumerate(closest_humans)
+        }
+        self.planned_human_goal_estimates = {
+            human_index: human_goals[actor_index].copy()
             for actor_index, human_index in enumerate(closest_humans)
         }
         position = child_state.positions[0].copy()
@@ -289,6 +298,8 @@ class Crowd:
         self.replan_timer = np.random.uniform(0.2, 1.1, size=max_humans).astype(np.float32)
         self.spawn_rate_per_sec = 0.2
         self.spawn_accumulator = 0.0
+        self.velocity_ema = np.zeros((max_humans, 2), dtype=np.float32)
+        self.ema_alpha = 0.05
 
     def spawn(self) -> bool:
         idxs = np.flatnonzero(~self.active)
@@ -314,6 +325,7 @@ class Crowd:
     def despawn(self, idx: int) -> None:
         self.active[idx] = False
         self.velocities[idx] = 0.0
+        self.velocity_ema[idx] = 0.0
         self.paths[idx] = []
         self.path_ptr[idx] = 0
         self.replan_timer[idx] = random.uniform(0.4, 1.2)
@@ -360,6 +372,11 @@ class Crowd:
         too_fast = speed > max_speed
         if np.any(too_fast):
             self.velocities[active_idxs[too_fast]] *= (max_speed[too_fast] / speed[too_fast])[:, None]
+
+        self.velocity_ema[active_idxs] = (
+            self.ema_alpha * self.velocities[active_idxs]
+            + (1 - self.ema_alpha) * self.velocity_ema[active_idxs]
+        )
 
         proposed = self.positions[active_idxs] + self.velocities[active_idxs] * dt
         for idx_local, i in enumerate(active_idxs):
