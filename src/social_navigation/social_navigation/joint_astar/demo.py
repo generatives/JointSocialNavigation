@@ -143,11 +143,11 @@ class ReplanningState:
     def __init__(self, scenario: ScenarioMap) -> None:
         self.scenario = scenario
         self.robot_goal = scenario.human_starts[0]   # (0, 9)
-        self.human_goal = scenario.robot_start       # (35, 9)
+        self.human_goal = scenario.robot_start[:2]    # (x, y)
         self.reset()
 
     def reset(self) -> None:
-        self.robot_pos: tuple[int, int] = self.scenario.robot_start
+        self.robot_pos: tuple[int, int] = self.scenario.robot_start[:2]
         self.human_pos: tuple[int, int] = self.scenario.human_starts[0]
         self.robot_history: list[tuple[int, int]] = []
         self.human_history: list[tuple[int, int]] = []

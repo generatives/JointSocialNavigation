@@ -13,7 +13,7 @@ class ScenarioMap:
     grid: np.ndarray
     human_starts: list[tuple[int, int]]
     human_ends: list[tuple[int, int]]
-    robot_start: tuple[int, int]
+    robot_start: tuple[int, int, float]   # (x, y, theta_radians)
     robot_goals: list[tuple[int, int]]
 
     @staticmethod
@@ -24,7 +24,7 @@ class ScenarioMap:
 
         human_starts = []
         human_ends = []
-        robot_start = (0, 0)
+        robot_start = (0, 0, 0.0)
         robot_goals = []
         return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
 
@@ -38,7 +38,7 @@ class ScenarioMap:
 
         human_starts = [(35, 6), (0, 6)]
         human_ends = [(20, 0), (20, 17)]
-        robot_start = (0, 10)
+        robot_start = (0, 10, 0.0)
         robot_goals = []
         return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
 
@@ -52,10 +52,10 @@ class ScenarioMap:
 
         human_starts = [(8, 0)]
         human_ends = [(8, 17)]
-        robot_start = (0, 8)
+        robot_start = (0, 8, 0.0)
         robot_goals = []
         return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
-    
+
     @staticmethod
     def build_hallway_collision() -> "ScenarioMap":
         height, width = 18, 18
@@ -65,7 +65,7 @@ class ScenarioMap:
 
         human_starts = [(17, 8)]
         human_ends = [(0, 8)]
-        robot_start = (0, 8)
+        robot_start = (0, 8, 0.0)
         robot_goals = []
         return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
 
@@ -81,15 +81,13 @@ class ScenarioMap:
         r = midpoint+1
         grid[l:r, :] = FREE
         grid[10, 12] = FREE
-        # grid[10:12, 30:32] = FREE
-        # grid[:, 6:12] = FREE
 
         human_starts = [(0, midpoint)]
         human_ends = [(endpoint, midpoint)]
-        robot_start = (endpoint, midpoint)
+        robot_start = (endpoint, midpoint, math.pi)   # faces left toward oncoming human
         robot_goals = []
         return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
-    
+
     @staticmethod
     def build_narrow_hallway2() -> "ScenarioMap":
         height, width = 18, 36
@@ -106,10 +104,10 @@ class ScenarioMap:
 
         human_starts = [(0, midpoint)]
         human_ends = [(endpoint, midpoint)]
-        robot_start = (endpoint, midpoint)
+        robot_start = (endpoint, midpoint, math.pi)   # faces left toward oncoming human
         robot_goals = []
         return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
-    
+
     @staticmethod
     def build_narrow_hallway3() -> "ScenarioMap":
         height, width = 18, 25
@@ -125,7 +123,7 @@ class ScenarioMap:
 
         human_starts = [(0, midpoint)]
         human_ends = [(endpoint, midpoint)]
-        robot_start = (endpoint-10, midpoint)
+        robot_start = (endpoint-10, midpoint, math.pi)   # faces left toward oncoming human
         robot_goals = []
         return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
 
@@ -148,7 +146,7 @@ class ScenarioMap:
     def is_free(self, cell: tuple[int, int]) -> bool:
         x, y = cell
         return self.in_bounds(cell) and self.grid[y, x] == FREE
-    
+
     def position_is_free(self, position: np.ndarray) -> bool:
         cell = self.world_to_cell(position)
         return self.is_free(cell)

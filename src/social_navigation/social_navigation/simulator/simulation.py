@@ -46,8 +46,9 @@ class NavigationSimulation:
             builder = _MAP_BUILDERS.get(config.map, ScenarioMap.build_hallway_crossing)
             self.scenario = builder()
 
-        robot_start = self.scenario.cell_to_world(self.scenario.robot_start)
-        self.robot = Robot(position=robot_start.copy(), theta=config.robot_theta)
+        rx, ry, theta = self.scenario.robot_start
+        robot_start = self.scenario.cell_to_world((rx, ry))
+        self.robot = Robot(position=robot_start.copy(), theta=theta)
         self.robot_ai = RobotAI(self.scenario)
         self.crowd = Crowd(
             max_humans=config.max_humans,
@@ -56,6 +57,12 @@ class NavigationSimulation:
             spawn_rate_per_sec=config.spawn_rate_per_sec,
             pref_speed_min=config.pref_speed_min,
             pref_speed_max=config.pref_speed_max,
+            human_human_amplitude=config.human_human_amplitude,
+            human_human_decay=config.human_human_decay,
+            robot_human_amplitude=config.robot_human_amplitude,
+            robot_human_decay=config.robot_human_decay,
+            obstacle_amplitude=config.obstacle_amplitude,
+            obstacle_decay=config.obstacle_decay,
         )
         self.mcts_robot_ai = MCTSRobotAI(self.scenario, self.crowd)
         self.joint_astar_robot_ai = JointAStarRobotAI(

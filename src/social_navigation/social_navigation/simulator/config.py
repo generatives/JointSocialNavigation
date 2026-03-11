@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,18 +10,19 @@ try:
 except ImportError:
     _YAML_AVAILABLE = False
 
-# Default config path: <repo_root>/config/simulator.yaml
-# ui.py is at  src/social_navigation/social_navigation/simulator/ui.py
-# parents[4]  = <repo_root>
-_DEFAULT_CONFIG_PATH = Path(__file__).parents[4] / "config" / "simulator.yaml"
+# Default config path: src/social_navigation/config/simulator.yaml
+# This file is at:    src/social_navigation/social_navigation/simulator/config.py
+# parents[0] = simulator/
+# parents[1] = social_navigation/  (inner package)
+# parents[2] = social_navigation/  (outer package)
+# parents[3] = src/
+_DEFAULT_CONFIG_PATH = Path(__file__).parents[2] / "config" / "simulator.yaml"
 
 
 @dataclass
 class SimConfig:
     # Map
     map: str = "hallway_crossing"
-    # Robot
-    robot_theta: float = 0.0
     # Crowd
     max_humans: int = 1
     max_spawns: int | None = 1
@@ -38,6 +38,13 @@ class SimConfig:
     proximity_penalty: float = 3.5
     proximity_threshold: int = 4
     replan_period: float = 0.25
+    # SFM
+    human_human_amplitude: float = 6.0
+    human_human_decay: float = 0.7
+    robot_human_amplitude: float = 10.0
+    robot_human_decay: float = 0.6
+    obstacle_amplitude: float = 1.0
+    obstacle_decay: float = 0.7
     # Display
     cell_px: int = 72
     warmup_seconds: float = 6.0
@@ -47,8 +54,8 @@ def load_config(path: str | Path | None = None) -> SimConfig:
     """Load a SimConfig from a YAML file.
 
     Falls back to built-in defaults for any key not present in the file.
-    If *path* is None the default location (<repo_root>/config/simulator.yaml)
-    is tried; missing file is silently ignored.
+    If *path* is None the default location is tried; a missing file is
+    silently ignored and all defaults are used.
     """
     search = Path(path) if path is not None else _DEFAULT_CONFIG_PATH
 
@@ -65,7 +72,6 @@ def load_config(path: str | Path | None = None) -> SimConfig:
 
     return SimConfig(
         map=data.get("map", "hallway_crossing"),
-        robot_theta=get("robot", "theta", 0.0),
         max_humans=get("crowd", "max_humans", 1),
         max_spawns=max_spawns,
         spawn_rate_per_sec=get("crowd", "spawn_rate_per_sec", 0.2),
@@ -78,6 +84,12 @@ def load_config(path: str | Path | None = None) -> SimConfig:
         proximity_penalty=get("joint_astar", "proximity_penalty", 3.5),
         proximity_threshold=get("joint_astar", "proximity_threshold", 4),
         replan_period=get("joint_astar", "replan_period", 0.25),
+        human_human_amplitude=get("sfm", "human_human_amplitude", 6.0),
+        human_human_decay=get("sfm", "human_human_decay", 0.7),
+        robot_human_amplitude=get("sfm", "robot_human_amplitude", 10.0),
+        robot_human_decay=get("sfm", "robot_human_decay", 0.6),
+        obstacle_amplitude=get("sfm", "obstacle_amplitude", 1.0),
+        obstacle_decay=get("sfm", "obstacle_decay", 0.7),
         cell_px=get("display", "cell_px", 72),
         warmup_seconds=get("display", "warmup_seconds", 6.0),
     )

@@ -444,6 +444,12 @@ class Crowd:
         spawn_rate_per_sec: float = 0.2,
         pref_speed_min: float = 1.0,
         pref_speed_max: float = 1.7,
+        human_human_amplitude: float = 6.0,
+        human_human_decay: float = 0.7,
+        robot_human_amplitude: float = 10.0,
+        robot_human_decay: float = 0.6,
+        obstacle_amplitude: float = 1.0,
+        obstacle_decay: float = 0.7,
     ) -> None:
         self.max_humans = max_humans
         self.scenario = scenario
@@ -458,6 +464,12 @@ class Crowd:
         self.paths: list[list[tuple[int, int]]] = [[] for _ in range(max_humans)]
         self.path_ptr = np.zeros(max_humans, dtype=np.int32)
         self.replan_timer = np.random.uniform(0.2, 1.1, size=max_humans).astype(np.float32)
+        self.human_human_amplitude = human_human_amplitude
+        self.human_human_decay = human_human_decay
+        self.robot_human_amplitude = robot_human_amplitude
+        self.robot_human_decay = robot_human_decay
+        self.obstacle_amplitude = obstacle_amplitude
+        self.obstacle_decay = obstacle_decay
         self.spawn_rate_per_sec = spawn_rate_per_sec
         self.spawn_accumulator = 0.0
 
@@ -586,10 +598,10 @@ class Crowd:
         forces = np.zeros((n, 2), dtype=np.float32)
         robot_social_force_generated = 0.0
 
-        a_h = 6.0
-        b_h = 0.7
-        a_obs = 1.0
-        b_obs = 0.7
+        a_h = self.human_human_amplitude
+        b_h = self.human_human_decay
+        a_obs = self.obstacle_amplitude
+        b_obs = self.obstacle_decay
 
         pos = self.positions[active_idxs]
         rad = self.radius[active_idxs]
@@ -631,7 +643,7 @@ class Crowd:
             h_to_hg = abs(human_cell[0] - human_goal_cell[0]) + abs(human_cell[1] - human_goal_cell[1])
             robot_is_blocking = h_to_r > 0 and (h_to_r + r_to_hg == h_to_hg)
 
-            mag = 10.0 * math.exp((combined - dist) / 0.6) if robot_is_blocking else 0.0
+            mag = self.robot_human_amplitude * math.exp((combined - dist) / self.robot_human_decay) if robot_is_blocking else 0.0
             if penetration > 0.0:
                 mag += penetration * 30.0
             force = direction * mag

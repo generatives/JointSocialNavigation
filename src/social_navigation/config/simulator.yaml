@@ -2,23 +2,15 @@
 # -------------------------
 # map: one of empty | default | hallway_crossing | hallway_collision |
 #             narrow_hallway | narrow_hallway2 | narrow_hallway3
+# Robot starting theta (orientation) is defined per-map in map.py.
 map: narrow_hallway
 
-robot:
-  # Starting orientation in radians.
-  # 0       = facing right (+x)
-  # pi/2    = facing down  (+y)
-  # pi      = facing left  (-x)
-  # -pi/2   = facing up    (-y)
-  theta: 3.14159
-
 crowd:
-  # Maximum number of humans that can be alive simultaneously.
+  # Maximum number of humans alive simultaneously.
   max_humans: 2
   # Total spawns allowed across the whole run.  Use null for unlimited.
   max_spawns: 4
-  # Average spawns per second (fractional accumulator — does not apply
-  # when max_spawns is reached).
+  # Average spawns per second (fractional accumulator).
   spawn_rate_per_sec: 0.2
   # Preferred walking speed range [min, max] in world units/second.
   pref_speed_min: 1.0
@@ -45,6 +37,20 @@ joint_astar:
   proximity_threshold: 4
   # How often (seconds) the robot replans from its current position.
   replan_period: 0.25
+
+sfm:
+  # Human-human social repulsion: amplitude and decay length (metres).
+  # Larger amplitude → humans push each other harder.
+  # Larger decay → force reaches further.
+  human_human_amplitude: 6.0
+  human_human_decay: 0.7
+  # Robot-human social repulsion (only applied when robot is blocking
+  # the human's optimal path; otherwise only contact forces apply).
+  robot_human_amplitude: 10.0
+  robot_human_decay: 0.6
+  # Obstacle repulsion: amplitude and decay length.
+  obstacle_amplitude: 1.0
+  obstacle_decay: 0.7
 
 display:
   # Pixels per grid cell.  Increase for a larger window.
