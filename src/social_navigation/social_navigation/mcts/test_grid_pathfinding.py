@@ -19,7 +19,6 @@ class OrderedTwoAgentGameState(GameStateProtocol):
         goal_position: np.ndarray,
         scheduled_order: tuple[int, ...],
         depth: int = 0,
-        max_steps: int = 10,
         arrival_steps: tuple[int | None, ...] | None = None,
     ):
         self.map = grid_map
@@ -27,7 +26,6 @@ class OrderedTwoAgentGameState(GameStateProtocol):
         self.goal_position = goal_position
         self.scheduled_order = scheduled_order
         self.depth = depth
-        self.max_steps = max_steps
         if arrival_steps is None:
             self.arrival_steps = tuple(None for _ in range(len(self.positions)))
         else:
@@ -76,13 +74,12 @@ class OrderedTwoAgentGameState(GameStateProtocol):
             goal_position=self.goal_position,
             scheduled_order=self.scheduled_order,
             depth=next_depth,
-            max_steps=self.max_steps,
             arrival_steps=tuple(new_arrival_steps),
         )
 
     def is_terminal(self) -> bool:
         everyone_arrived = all(step is not None for step in self.arrival_steps)
-        return everyone_arrived or self.depth >= self.max_steps
+        return everyone_arrived
 
     def terminal_values(self) -> ValueMap:
         scores = [0.0 for _ in range(len(self.positions))]
@@ -112,7 +109,7 @@ class OrderedTwoAgentGameState(GameStateProtocol):
 
 def coordinated_ordered_rollout(state: OrderedTwoAgentGameState):
     rollout_depth = 0
-    while not state.is_terminal() and rollout_depth < 12:
+    while not state.is_terminal() and rollout_depth < 8:
         legal_actions = state.legal_actions()
         selected_actions = []
         for actions in legal_actions:
@@ -124,7 +121,7 @@ def coordinated_ordered_rollout(state: OrderedTwoAgentGameState):
         state = state.apply_actions(selected_actions)
         rollout_depth += 1
 
-    return state.terminal_values() if state.is_terminal() else [0.0, 0.0]
+    return state.terminal_values()
 
 
 def test_straight_path():
@@ -151,7 +148,6 @@ def test_straight_path():
         positions=start_positions,
         goal_position=goal,
         scheduled_order=(0, 1),
-        max_steps=8,
     )
     states = [state]
     actions = []
@@ -194,11 +190,10 @@ def test_curved_path():
         positions=start_positions,
         goal_position=goal,
         scheduled_order=(0, 1),
-        max_steps=10,
     )
     states = [state]
     actions = []
-    for _ in range(10):
+    for _ in range(8):
         action, state, _, _ = mcts.search(state, num_simulations=25000)
         states.append(state)
         actions.append(action)

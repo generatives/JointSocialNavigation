@@ -30,12 +30,12 @@ class MCTSConfig:
         if self.max_depth <= 0:
             raise ValueError("max_depth must be > 0")
 
-        num_actions = tuple(self.max_actions)
-        object.__setattr__(self, "num_actions", num_actions)
+        max_actions = tuple(self.max_actions)
+        object.__setattr__(self, "max_actions", max_actions)
 
         child_index_steps = []
         radix = 1
-        for action_count in num_actions:
+        for action_count in max_actions:
             child_index_steps.append(radix)
             radix *= action_count
         object.__setattr__(
@@ -46,7 +46,7 @@ class MCTSConfig:
         object.__setattr__(
             self,
             "legal_actions",
-            tuple(tuple(range(action_count)) for action_count in num_actions),
+            tuple(tuple(range(action_count)) for action_count in max_actions),
         )
 
 
