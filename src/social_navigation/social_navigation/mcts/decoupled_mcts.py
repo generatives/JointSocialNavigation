@@ -232,14 +232,14 @@ class MCTS:
 
         best_actions = self._most_visited_actions(root)
         child_node = root.get_child(best_actions)
-        trajectory = self._get_most_visited_trajectory(child_node)
+        trajectory = self._get_expected_trajectory(child_node)
         state_trajectory = [node.state for node in trajectory]
         return best_actions, child_node.state, state_trajectory, stats
     
-    def _get_most_visited_trajectory(self, node: _Node):
+    def _get_expected_trajectory(self, node: _Node):
         nodes = [node]
-        while not node.state.is_terminal():
-            best_actions = self._highest_scoring_actions(node)
+        while not node.state.is_terminal() and node.visits > 0:
+            best_actions = self._most_visited_actions(node)
             node = node.get_child(best_actions)
             nodes.append(node)
         return nodes
@@ -259,7 +259,8 @@ class MCTS:
     def _most_visited_actions(self, root: _Node) -> Action:
         actions = []
         for actor in range(self.config.num_actors):
-            action, visits = max(enumerate(root.visits_by_action[actor]), key=lambda t: t[1])
+            max_visits = max(root.visits_by_action[actor])
+            action = random.choice([action for action, visits in enumerate(root.visits_by_action[actor]) if visits >= max_visits])
             actions.append(action)
 
         return actions

@@ -217,7 +217,7 @@ class MCTSRobotAI:
             depth=0
         )
 
-        _, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=1000)
+        _, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=5000)
         self.planned_robot_trajectory = [state.positions[0].copy() for state in state_trajectory]
         self.planned_human_trajectories = {
             human_index: [state.positions[actor_index+1].copy() for state in state_trajectory]

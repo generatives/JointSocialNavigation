@@ -139,7 +139,7 @@ class MCTSGameState(GameStateProtocol):
         value_accumulator = value_accumulator.copy()
         value_accumulator[0] += self._uncomfortable_distance()
         if self.is_terminal():
-            value_accumulator += 0.1 * self._goal_distance()
+            value_accumulator += 0.3 * self._goal_distance()
         
         invalid_state_mask, _ = self._get_invalid_state()
         value_accumulator[invalid_state_mask] = -1.0
