@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass, field
+from typing import Dict, List
 
 import numpy as np
 
@@ -142,17 +143,22 @@ class MCTSRobotAI:
         self.replan_period = replan_period
         self.replan_timer = 0.0
         self.manual_goal: tuple[int, int] | None = None
-        self.intermediate_goal: np.ndarray | None = None
+        self.intermediate_position_goal: np.ndarray | None = None
+        self.intermediate_orientation_goal: float | None = None
+        self.planned_robot_trajectory: List[float, float] | None = None
+        self.planned_human_trajectories: Dict[int, List[float, float]] | None = None
 
     def set_manual_goal(self, cell: tuple[int, int]) -> None:
         self.manual_goal = cell
         self.replan_timer = 0.0
-        self.intermediate_goal = None
+        self.intermediate_position_goal = None
+        self.intermediate_orientation_goal = None
 
     def clear_manual_goal(self) -> None:
         self.manual_goal = None
         self.replan_timer = 0.0
-        self.intermediate_goal = None
+        self.intermediate_position_goal = None
+        self.intermediate_orientation_goal = None
 
     def _plan_intermediate_goal(self, robot: Robot) -> np.ndarray:
         num_humans = 5
@@ -173,7 +179,8 @@ class MCTSRobotAI:
 
         human_positions = self.crowd.positions[closest_humans]
         human_velocities = self.crowd.velocities[closest_humans]
-        human_goals = human_positions + human_velocities * (human_speed * dt * tree_depth)
+        #human_goals = human_positions + human_velocities * (human_speed * dt * tree_depth)
+        human_goals = self.crowd.goals[closest_humans]
 
         robot_velocity = np.array([
             [np.cos(robot.theta), np.sin(robot.theta)]
@@ -183,6 +190,7 @@ class MCTSRobotAI:
         velocities = np.concatenate((robot_velocity, human_velocities))
         robot_goal = self.scenario.cell_to_world(self.manual_goal)[None, :]
         goal_positions = np.vstack((robot_goal, human_goals))
+        starting_distances = np.linalg.norm(goal_positions - positions, axis=1)
 
         num_agents = positions.shape[0]
         num_actions = [6] + [1] * (num_agents - 1)
@@ -195,6 +203,7 @@ class MCTSRobotAI:
             human_radius=np.mean(self.crowd.radius),
             angle=np.pi / 4.0,
             uncomfortable_distance=1.5,
+            starting_distances=starting_distances,
             map=self.scenario,
         )
         mcts = MCTS(mcts_config, navigation_rollout, rng=random.Random(random.randint(0, 2**31 - 1)))
@@ -208,8 +217,16 @@ class MCTSRobotAI:
             depth=0
         )
 
-        _, child_state, _ = mcts.search(root_state, num_simulations=500)
-        return child_state.positions[0].copy()
+        _, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=5000)
+        self.planned_robot_trajectory = [state.positions[0].copy() for state in state_trajectory]
+        self.planned_human_trajectories = {
+            human_index: [state.positions[actor_index+1].copy() for state in state_trajectory]
+            for actor_index, human_index in enumerate(closest_humans)
+        }
+        position = child_state.positions[0].copy()
+        velocity = child_state.velocities[0].copy()
+        orientation = np.arctan2(velocity[1], velocity[0])
+        return position, orientation
 
     def update(self, robot: Robot, dt: float) -> None:
         self.replan_timer -= dt
@@ -233,19 +250,28 @@ class MCTSRobotAI:
             robot.command_w = 0.0
             return
         
-        if self.replan_timer <= 0.0 or self.intermediate_goal is None or np.linalg.norm(robot.position - self.intermediate_goal) < 0.35:
+        if self.replan_timer <= 0.0 or self.intermediate_position_goal is None:
             self.replan_timer = self.replan_period
-            self.intermediate_goal = self._plan_intermediate_goal(robot)
+            position, orientation = self._plan_intermediate_goal(robot)
+            self.intermediate_position_goal = position
+            self.intermediate_orientation_goal = orientation
 
-        target_disp = self.intermediate_goal - robot.position
+        target_disp = self.intermediate_position_goal - robot.position
 
         desired_heading = math.atan2(float(target_disp[1]), float(target_disp[0]))
         heading_error = (desired_heading - robot.theta + math.pi) % (2.0 * math.pi) - math.pi
         distance = np.linalg.norm(target_disp)
 
-        robot.command_w = float(np.clip(2.3 * heading_error, -robot.max_omega, robot.max_omega))
-        speed_scale = max(0.0, 1.0 - abs(heading_error) / math.pi)
-        robot.command_v = float(np.clip(1.8 * distance * speed_scale, 0.0, robot.max_speed))
+        if distance > 0.05:
+            robot.command_w = float(np.clip(2.3 * heading_error, -robot.max_omega, robot.max_omega))
+            speed_scale = max(0.0, 1.0 - abs(heading_error) / math.pi)
+            robot.command_v = float(np.clip(1.8 * distance * speed_scale, 0.0, robot.max_speed))
+        else:
+            desired_heading = self.intermediate_orientation_goal
+            heading_error = (desired_heading - robot.theta + math.pi) % (2.0 * math.pi) - math.pi
+            robot.command_w = float(np.clip(2.3 * heading_error, -robot.max_omega, robot.max_omega))
+            robot.command_v = 0
+            
 
 
 class Crowd:
@@ -261,7 +287,7 @@ class Crowd:
         self.paths: list[list[tuple[int, int]]] = [[] for _ in range(max_humans)]
         self.path_ptr = np.zeros(max_humans, dtype=np.int32)
         self.replan_timer = np.random.uniform(0.2, 1.1, size=max_humans).astype(np.float32)
-        self.spawn_rate_per_sec = 0.5
+        self.spawn_rate_per_sec = 0.2
         self.spawn_accumulator = 0.0
 
     def spawn(self) -> bool:
