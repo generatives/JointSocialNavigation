@@ -104,7 +104,9 @@ class RobotAI:
             robot.command_w = 0.0
             return
 
-        if np.linalg.norm(robot.position - self.scenario.cell_to_world(goal)) < 0.6:
+        final_goal_world = self.scenario.cell_to_world(goal)
+        final_goal_dist = np.linalg.norm(robot.position - final_goal_world)
+        if final_goal_dist < 0.6:
             robot.command_v = 0.0
             robot.command_w = 0.0
             return
@@ -130,11 +132,19 @@ class RobotAI:
 
         desired_heading = math.atan2(float(to_target[1]), float(to_target[0]))
         heading_error = (desired_heading - robot.theta + math.pi) % (2.0 * math.pi) - math.pi
-        distance = np.linalg.norm(to_target)
 
         robot.command_w = float(np.clip(2.3 * heading_error, -robot.max_omega, robot.max_omega))
         speed_scale = max(0.0, 1.0 - abs(heading_error) / math.pi)
-        robot.command_v = float(np.clip(1.8 * distance * speed_scale, 0.0, robot.max_speed))
+
+        # Keep speed high through intermediate waypoints.
+        cruise_speed = robot.max_speed * speed_scale
+
+        # Only slow down near the final manual goal.
+        slow_radius = 1.5
+        if final_goal_dist < slow_radius:
+            cruise_speed *= final_goal_dist / slow_radius
+
+        robot.command_v = float(np.clip(cruise_speed, 0.0, robot.max_speed))
 
 class MCTSRobotAI:
     def __init__(self, scenario: ScenarioMap, crowd: Crowd, replan_period: float = 0.50):
@@ -199,7 +209,11 @@ class MCTSRobotAI:
 
         num_agents = positions.shape[0]
         num_actions = [6] + [1] * (num_agents - 1)
-        mcts_config = MCTSConfig(num_actors=num_agents, max_actions=num_actions, max_depth=tree_depth)
+        mcts_config = MCTSConfig(
+            num_actors=num_agents, 
+            max_actions=num_actions, 
+            rng=random.Random(random.randint(0, 2**31 - 1)),
+            max_depth=tree_depth)
         state_config = MCTSGameStateConfig(
             mcts_config=mcts_config,
             robot_speed=human_speed,
@@ -211,7 +225,7 @@ class MCTSRobotAI:
             starting_distances=starting_distances,
             map=self.scenario,
         )
-        mcts = MCTS(mcts_config, navigation_rollout, rng=random.Random(random.randint(0, 2**31 - 1)))
+        mcts = MCTS(mcts_config, navigation_rollout)
 
         root_state = MCTSGameState(
             positions=positions,
@@ -222,7 +236,7 @@ class MCTSRobotAI:
             depth=0
         )
 
-        _, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=50000)
+        _, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=5000)
         self.planned_robot_trajectory = [state.positions[0].copy() for state in state_trajectory]
         self.planned_human_trajectories = {
             human_index: [state.positions[actor_index+1].copy() for state in state_trajectory]
@@ -254,7 +268,9 @@ class MCTSRobotAI:
             robot.command_w = 0.0
             return
 
-        if np.linalg.norm(robot.position - self.scenario.cell_to_world(goal)) < 0.6:
+        final_goal_world = self.scenario.cell_to_world(goal)
+        final_goal_dist = np.linalg.norm(robot.position - final_goal_world)
+        if final_goal_dist < 0.6:
             robot.command_v = 0.0
             robot.command_w = 0.0
             return
@@ -274,12 +290,19 @@ class MCTSRobotAI:
         if distance > 0.05:
             robot.command_w = float(np.clip(2.3 * heading_error, -robot.max_omega, robot.max_omega))
             speed_scale = max(0.0, 1.0 - abs(heading_error) / math.pi)
-            robot.command_v = float(np.clip(1.8 * distance * speed_scale, 0.0, robot.max_speed))
+            cruise_speed = robot.max_speed * speed_scale
+
+            # Only slow down when approaching the final manual goal.
+            slow_radius = 1.5
+            if final_goal_dist < slow_radius:
+                cruise_speed *= final_goal_dist / slow_radius
+
+            robot.command_v = float(np.clip(cruise_speed, 0.0, robot.max_speed))
         else:
             desired_heading = self.intermediate_orientation_goal
             heading_error = (desired_heading - robot.theta + math.pi) % (2.0 * math.pi) - math.pi
             robot.command_w = float(np.clip(2.3 * heading_error, -robot.max_omega, robot.max_omega))
-            robot.command_v = 0
+            robot.command_v = 0.0
             
 
 
@@ -299,7 +322,7 @@ class Crowd:
         self.spawn_rate_per_sec = 0.2
         self.spawn_accumulator = 0.0
         self.velocity_ema = np.zeros((max_humans, 2), dtype=np.float32)
-        self.ema_alpha = 0.05
+        self.ema_alpha = 0.02 # exponential moving average
 
     def spawn(self) -> bool:
         idxs = np.flatnonzero(~self.active)
