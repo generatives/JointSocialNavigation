@@ -161,6 +161,10 @@ class SimulatorUI:
                         end = trajectory[i+1]
                         commands.append(Line(start=self._to_px(start), end=self._to_px(end), color=(58, 138, 246), width=3))
 
+            if self.simulation.mcts_robot_ai.planned_human_goal_estimates:
+                for goal_pos in self.simulation.mcts_robot_ai.planned_human_goal_estimates.values():
+                    self._draw_circle(commands, goal_pos, 0.18, (255, 165, 0))
+
 
         commands.append(Present())
         self.runtime.submit_frame(commands)
