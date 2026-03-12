@@ -15,14 +15,17 @@ from .scenario_map import ScenarioMap
 from .pathfinding import a_star
 from .physics import collides_with_walls
 
+ROBOT_RADIUS = 0.35
+MAX_ROBOT_SPEED = 2.1
+MAX_ROBOT_OMEGA = 2.6
 
 @dataclass
 class Robot:
     position: np.ndarray
     theta: float
-    radius: float = 0.35
-    max_speed: float = 2.1
-    max_omega: float = 2.6
+    radius: float = ROBOT_RADIUS
+    max_speed: float = MAX_ROBOT_SPEED
+    max_omega: float = MAX_ROBOT_OMEGA
     command_v: float = 0.0
     command_w: float = 0.0
     goal_idx: int = 0
@@ -153,8 +156,8 @@ class MCTSRobotAI:
         self.replan_period = replan_period
         self.replan_timer = 0.0
         self.manual_goal: tuple[int, int] | None = None
-        self.intermediate_position_goal: np.ndarray | None = None
-        self.intermediate_orientation_goal: float | None = None
+        self.command_v: float | None = None
+        self.command_w: float | None = None
         self.planned_robot_trajectory: List[float, float] | None = None
         self.planned_human_trajectories: Dict[int, List[float, float]] | None = None
         self.planned_human_goal_estimates: Dict[int, np.ndarray] | None = None
@@ -162,20 +165,20 @@ class MCTSRobotAI:
     def set_manual_goal(self, cell: tuple[int, int]) -> None:
         self.manual_goal = cell
         self.replan_timer = 0.0
-        self.intermediate_position_goal = None
-        self.intermediate_orientation_goal = None
+        self.command_v = None
+        self.command_w = None
 
     def clear_manual_goal(self) -> None:
         self.manual_goal = None
         self.replan_timer = 0.0
-        self.intermediate_position_goal = None
-        self.intermediate_orientation_goal = None
+        self.command_v = None
+        self.command_w = None
 
     def _plan_intermediate_goal(self, robot: Robot) -> np.ndarray:
         num_humans = 5
         tree_depth = 6
         dt = 0.5
-        human_speed = 1.7
+        assumed_human_speed = 1.7
 
         if self.manual_goal is None:
             return robot.position.copy()
@@ -190,7 +193,7 @@ class MCTSRobotAI:
 
         human_positions = self.crowd.positions[closest_humans]
         human_velocities = self.crowd.velocities[closest_humans]
-        horizon = human_speed * dt * tree_depth
+        horizon = assumed_human_speed * dt * tree_depth
         ema_vels = self.crowd.velocity_ema[closest_humans]
         ema_speeds = np.linalg.norm(ema_vels, axis=1, keepdims=True)
         moving = ema_speeds > 0.1
@@ -216,11 +219,11 @@ class MCTSRobotAI:
             max_depth=tree_depth)
         state_config = MCTSGameStateConfig(
             mcts_config=mcts_config,
-            robot_speed=human_speed,
+            robot_speed=MAX_ROBOT_SPEED * 0.9,
             dt=dt,
             robot_radius=robot.radius,
             human_radius=np.mean(self.crowd.radius),
-            angle=np.pi / 4.0,
+            robot_angular_velocity=MAX_ROBOT_OMEGA * 0.9,
             uncomfortable_distance=1.5,
             starting_distances=starting_distances,
             map=self.scenario,
@@ -236,7 +239,7 @@ class MCTSRobotAI:
             depth=0
         )
 
-        _, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=5000)
+        actions, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=5000)
         self.planned_robot_trajectory = [state.positions[0].copy() for state in state_trajectory]
         self.planned_human_trajectories = {
             human_index: [state.positions[actor_index+1].copy() for state in state_trajectory]
@@ -246,10 +249,10 @@ class MCTSRobotAI:
             human_index: human_goals[actor_index].copy()
             for actor_index, human_index in enumerate(closest_humans)
         }
-        position = child_state.positions[0].copy()
-        velocity = child_state.velocities[0].copy()
-        orientation = np.arctan2(velocity[1], velocity[0])
-        return position, orientation
+
+        linear_velocity, angular_velocity = root_state.get_command_velocities(actions[0])
+
+        return linear_velocity, angular_velocity
 
     def update(self, robot: Robot, dt: float) -> None:
         self.replan_timer -= dt
@@ -270,40 +273,19 @@ class MCTSRobotAI:
 
         final_goal_world = self.scenario.cell_to_world(goal)
         final_goal_dist = np.linalg.norm(robot.position - final_goal_world)
-        if final_goal_dist < 0.6:
+        if final_goal_dist < (MAX_ROBOT_SPEED * 0.5):
             robot.command_v = 0.0
             robot.command_w = 0.0
             return
         
-        if self.replan_timer <= 0.0 or self.intermediate_position_goal is None:
+        if self.replan_timer <= 0.0:
             self.replan_timer = self.replan_period
-            position, orientation = self._plan_intermediate_goal(robot)
-            self.intermediate_position_goal = position
-            self.intermediate_orientation_goal = orientation
+            linear_velocity, angular_velocity = self._plan_intermediate_goal(robot)
+            self.command_v = linear_velocity
+            self.command_w = angular_velocity
 
-        target_disp = self.intermediate_position_goal - robot.position
-
-        desired_heading = math.atan2(float(target_disp[1]), float(target_disp[0]))
-        heading_error = (desired_heading - robot.theta + math.pi) % (2.0 * math.pi) - math.pi
-        distance = np.linalg.norm(target_disp)
-
-        if distance > 0.05:
-            robot.command_w = float(np.clip(2.3 * heading_error, -robot.max_omega, robot.max_omega))
-            speed_scale = max(0.0, 1.0 - abs(heading_error) / math.pi)
-            cruise_speed = robot.max_speed * speed_scale
-
-            # Only slow down when approaching the final manual goal.
-            slow_radius = 1.5
-            if final_goal_dist < slow_radius:
-                cruise_speed *= final_goal_dist / slow_radius
-
-            robot.command_v = float(np.clip(cruise_speed, 0.0, robot.max_speed))
-        else:
-            desired_heading = self.intermediate_orientation_goal
-            heading_error = (desired_heading - robot.theta + math.pi) % (2.0 * math.pi) - math.pi
-            robot.command_w = float(np.clip(2.3 * heading_error, -robot.max_omega, robot.max_omega))
-            robot.command_v = 0.0
-            
+        robot.command_v = self.command_v
+        robot.command_w = self.command_w
 
 
 class Crowd:

@@ -93,7 +93,7 @@ class Navigator(Node):
             dt=0.5,
             robot_radius=robot_radius,
             human_radius=0.5,
-            angle=np.pi / 4.0,
+            robot_angular_velocity=np.pi / 4.0,
             uncomfortable_distance=1.5,
             map=ScenarioMap.build_empty(),
         )
