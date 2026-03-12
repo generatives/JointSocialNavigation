@@ -4,9 +4,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .agents import Crowd, JointAStarRobotAI, MCTSRobotAI, Robot, RobotAI
+from .agents import Crowd, MCTSRobotAI, Robot, RobotAI, JointAStarRobotAI
 from .config import SimConfig, load_config
-from .map import ScenarioMap
+from .scenario_map import ScenarioMap
 
 CONTROL_MODES = ("MANUAL", "ROBOT_AI", "MCTS_ROBOT_AI", "JOINT_ASTAR_ROBOT_AI")
 

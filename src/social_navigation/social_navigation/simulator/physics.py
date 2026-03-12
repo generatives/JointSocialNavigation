@@ -5,7 +5,7 @@ import math
 import numpy as np
 
 from .constants import WALL
-from .map import ScenarioMap
+from .scenario_map import ScenarioMap
 
 
 def collides_with_walls(position: np.ndarray, radius: float, scenario: ScenarioMap) -> bool:
