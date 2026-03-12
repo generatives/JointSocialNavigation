@@ -211,6 +211,60 @@ class MCTS:
         *,
         num_simulations: int,
     ) -> Tuple[Action, GameStateProtocol]:
+        
+        root, stats = self._search_internal(root_state, num_simulations=num_simulations)
+        
+        best_actions = self._most_visited_actions(root)
+        child_node = root.get_child(best_actions)
+        trajectory = self._get_expected_trajectory(child_node)
+        state_trajectory = [node.state for node in trajectory]
+        return best_actions, child_node.state, state_trajectory, stats
+        
+    def _search_iteration(self, root: _Node, stats: Dict | None):
+        node = root
+        depth = 0
+
+        fully_expanded = node.fully_expanded()
+        is_terminal = node.state.is_terminal()
+        
+        #stats["check_expanded"] += 1
+        #stats["cached_check_expanded"] += 1 if node._fully_expanded else 0
+        #stats["check_terminal"] += 1
+        #print(f"Selecting node for simulation {i}")
+        while fully_expanded and not is_terminal and depth < self.config.max_depth:
+            node = node.select_child()
+            fully_expanded = node.fully_expanded()
+            is_terminal = node.state.is_terminal()
+            depth += 1
+            #stats["select_child"] += 1
+            #stats["check_expanded"] += 1
+            #stats["cached_check_expanded"] += 1 if node._fully_expanded else 0
+            #stats["check_terminal"] += 1
+
+        if is_terminal:
+            #print(f"Reached terminal state for simulation {i}")
+            values = node.state.terminal_values()
+        else:
+            #print(f"Rolling out simulation {i}")
+            if not fully_expanded and depth < self.config.max_depth:
+                #stats["select_child_expand"] += 1
+                node = node.expand()
+            #stats["rollout"] += 1
+            #stats["rollout_total_depth"] += node.config.max_depth - node.state.depth
+            values = self.rollout_fn(node.state)
+
+        #print(f"Backpropagating simulation {i}")
+        #stats["backpropogate"] += 1
+        #stats["backpropogate_total_depth"] += node.state.depth
+        node.backpropagate(values)
+        #print(f"Completed simulation {i}")
+
+    def _search_internal(
+        self,
+        root_state: GameStateProtocol,
+        *,
+        num_simulations: int,
+    ) -> Tuple[_Node, Dict | None]:
         #print("Starting search")
         root = _Node(root_state, self.config, None, None)
 
@@ -228,44 +282,7 @@ class MCTS:
         #}
         chosen_actions = []
         for i in range(num_simulations):
-            #print(f"Starting simulation {i}")
-            node = root
-            depth = 0
-
-            fully_expanded = node.fully_expanded()
-            is_terminal = node.state.is_terminal()
-            
-            #stats["check_expanded"] += 1
-            #stats["cached_check_expanded"] += 1 if node._fully_expanded else 0
-            #stats["check_terminal"] += 1
-            #print(f"Selecting node for simulation {i}")
-            while fully_expanded and not is_terminal and depth < self.config.max_depth:
-                node = node.select_child()
-                fully_expanded = node.fully_expanded()
-                is_terminal = node.state.is_terminal()
-                depth += 1
-                #stats["select_child"] += 1
-                #stats["check_expanded"] += 1
-                #stats["cached_check_expanded"] += 1 if node._fully_expanded else 0
-                #stats["check_terminal"] += 1
-
-            if is_terminal:
-                #print(f"Reached terminal state for simulation {i}")
-                values = node.state.terminal_values()
-            else:
-                #print(f"Rolling out simulation {i}")
-                if not fully_expanded and depth < self.config.max_depth:
-                    #stats["select_child_expand"] += 1
-                    node = node.expand()
-                #stats["rollout"] += 1
-                #stats["rollout_total_depth"] += node.config.max_depth - node.state.depth
-                values = self.rollout_fn(node.state)
-
-            #print(f"Backpropagating simulation {i}")
-            #stats["backpropogate"] += 1
-            #stats["backpropogate_total_depth"] += node.state.depth
-            node.backpropagate(values)
-            #print(f"Completed simulation {i}")
+            self._search_iteration(root, stats)
 
             if i % 100 == 0:
                 best_actions = self._most_visited_actions(root)
@@ -273,11 +290,7 @@ class MCTS:
 
         #print(chosen_actions)
 
-        best_actions = self._most_visited_actions(root)
-        child_node = root.get_child(best_actions)
-        trajectory = self._get_expected_trajectory(child_node)
-        state_trajectory = [node.state for node in trajectory]
-        return best_actions, child_node.state, state_trajectory, stats
+        return root, stats
     
     def _get_expected_trajectory(self, node: _Node):
         nodes = [node]
