@@ -6,7 +6,7 @@ import numpy as np
 
 from social_navigation.mcts.decoupled_mcts import Action, GameStateProtocol, MCTSConfig, ValueMap
 from social_navigation.simulator.constants import WALL
-from social_navigation.simulator.map import ScenarioMap
+from social_navigation.social_navigation.simulator.scenario_map import ScenarioMap
 
 
 @dataclass(frozen=True, slots=True)

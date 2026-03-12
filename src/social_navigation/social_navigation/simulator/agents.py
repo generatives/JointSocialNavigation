@@ -11,7 +11,7 @@ from social_navigation.mcts.decoupled_mcts import MCTS, MCTSConfig
 from social_navigation.simulator.mcts_game_state import MCTSGameState, MCTSGameStateConfig, navigation_rollout
 
 from .constants import WALL
-from .map import ScenarioMap
+from .scenario_map import ScenarioMap
 from .pathfinding import a_star
 from .physics import collides_with_walls
 
@@ -199,7 +199,7 @@ class MCTSRobotAI:
 
         num_agents = positions.shape[0]
         num_actions = [6] + [1] * (num_agents - 1)
-        mcts_config = MCTSConfig(num_actors=num_agents, num_actions=num_actions, max_depth=tree_depth)
+        mcts_config = MCTSConfig(num_actors=num_agents, max_actions=num_actions, max_depth=tree_depth)
         state_config = MCTSGameStateConfig(
             mcts_config=mcts_config,
             robot_speed=human_speed,
@@ -222,7 +222,7 @@ class MCTSRobotAI:
             depth=0
         )
 
-        _, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=5000)
+        _, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=50000)
         self.planned_robot_trajectory = [state.positions[0].copy() for state in state_trajectory]
         self.planned_human_trajectories = {
             human_index: [state.positions[actor_index+1].copy() for state in state_trajectory]

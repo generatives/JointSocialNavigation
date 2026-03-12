@@ -12,7 +12,7 @@ from geometry_msgs.msg import PointStamped
 from nav2_msgs.action import NavigateToPose
 
 from social_navigation.mcts.decoupled_mcts import MCTS, MCTSConfig
-from social_navigation.simulator.map import ScenarioMap
+from social_navigation.social_navigation.simulator.scenario_map import ScenarioMap
 from social_navigation.simulator.mcts_game_state import MCTSGameState, MCTSGameStateConfig, navigation_rollout
 
 
@@ -80,7 +80,7 @@ class Navigator(Node):
 
         mcts_config = MCTSConfig(
             num_actors=num_agents,
-            num_actions=num_actions,
+            max_actions=num_actions,
             max_depth=tree_depth
         )
 
