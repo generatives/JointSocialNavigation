@@ -141,11 +141,32 @@ class _Node:
         for actor, actions in enumerate(legal_actions):
             best_score = -math.inf
             best_action = 0
+            action_data = []
+            heuristic_values = []
+            
             for action in actions:
                 action_visits = self.visits_by_action[actor][action]
                 q = self.value_by_action[actor][action] / action_visits if action_visits > 0 else 0.0
                 u = self.config.c_puct * (sqrt_visits / (1 + action_visits))
-                score = q + u
+                
+                if actor == 0:
+                    h = self.state.heuristic_robot_goal_score_for_action(action)
+                else:
+                    h = 0.0
+                action_data.append((action, q, u, h))
+                heuristic_values.append(h)
+            
+            h_min = min(heuristic_values)
+            h_max = max(heuristic_values)
+
+            for action, q, u, h in action_data:
+                if h_max > h_min:
+                    normalized_score = (h - h_min) / (h_max - h_min)
+                else:
+                    normalized_score = 1.0
+
+                score = q + u * normalized_score
+
                 if score > best_score:
                     best_score = score
                     best_action = action

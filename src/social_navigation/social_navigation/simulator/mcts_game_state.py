@@ -68,16 +68,10 @@ class MCTSGameState(GameStateProtocol):
     def legal_actions(self) -> Iterable[Iterable[Action]]:
         return self.config.mcts_config.legal_actions
     
-    def _propagate_unicycle(self, x, y, theta, v, omega, dt, eps=1e-9):
-        if abs(omega) < eps:
-            x_new = x + v * dt * math.cos(theta)
-            y_new = y + v * dt * math.sin(theta)
-            theta_new = theta
-        else:
-            theta_new = theta + omega * dt
-            x_new = x + (v / omega) * (math.sin(theta_new) - math.sin(theta))
-            y_new = y - (v / omega) * (math.cos(theta_new) - math.cos(theta))
-
+    def _propagate_unicycle(self, x, y, theta, v, omega, dt):
+        theta_new = theta + omega * dt
+        x_new = x + v * dt * math.cos(theta_new)
+        y_new = y + v * dt * math.sin(theta_new)
         return x_new, y_new, theta_new
     
     def get_command_velocities(self, robot_action: int) -> List[float]:
@@ -100,8 +94,8 @@ class MCTSGameState(GameStateProtocol):
                                                                        self.config.dt)
 
         new_velocities = np.empty_like(self.velocities)
-        new_velocities[0, 0] = robot_speed * np.cos(robot_new_orientation)
-        new_velocities[0, 1] = robot_speed * np.sin(robot_new_orientation)
+        new_velocities[0, 0] = np.cos(robot_new_orientation)
+        new_velocities[0, 1] = np.sin(robot_new_orientation)
         new_velocities[1:] = human_velocities
 
         new_positions = self.positions + self.config.dt * new_velocities
@@ -163,7 +157,7 @@ class MCTSGameState(GameStateProtocol):
         value_accumulator = value_accumulator.copy()
         value_accumulator[0] += self._uncomfortable_distance()
         if self.is_terminal():
-            value_accumulator += 0.3 * self._goal_distance()
+            value_accumulator += 1.0 * self._goal_distance()
         
         invalid_state_mask, _ = self._get_invalid_state()
         value_accumulator[invalid_state_mask] = -1.0
@@ -263,6 +257,44 @@ class MCTSGameState(GameStateProtocol):
                     forces[i] += direction * mag
 
         return forces, robot_social_force_generated
+    
+    def heuristic_robot_goal_score_for_action(self, robot_action: int) -> float:
+        robot_position = self.positions[0]
+        robot_velocity = self.velocities[0]
+
+        robot_orientation = math.atan2(robot_velocity[1], robot_velocity[0])
+        robot_speed, robot_angular_velocity = self.get_command_velocities(robot_action)
+
+        x_new, y_new, _ = self._propagate_unicycle(
+            robot_position[0],
+            robot_position[1],
+            robot_orientation,
+            robot_speed,
+            robot_angular_velocity,
+            self.config.dt,
+        )
+
+        current_dist_to_goal = math.hypot(
+            float(self.agent_goal_positions[0, 0] - robot_position[0]),
+            float(self.agent_goal_positions[0, 1] - robot_position[1]),
+        )
+        new_dist_to_goal = math.hypot(
+            float(self.agent_goal_positions[0, 0] - x_new),
+            float(self.agent_goal_positions[0, 1] - y_new),
+        )
+        max_step = self.config.robot_speed * self.config.dt
+        goal_score = (current_dist_to_goal - new_dist_to_goal) / max_step  # range [-1, +1]
+
+        new_pos = np.array([x_new, y_new], dtype=np.float32)
+        if self.positions.shape[0] > 1:
+            human_positions = self.positions[1:, :]
+            dists_to_humans = np.linalg.norm(human_positions - new_pos, axis=1)
+            min_human_dist = float(np.min(dists_to_humans))
+            social_score = 1.0 - math.exp(-min_human_dist / self.config.uncomfortable_distance)
+        else:
+            social_score = 1.0
+
+        return 7.0 * goal_score + 3.0 * social_score
     
 
 def navigation_rollout(state: MCTSGameState):
