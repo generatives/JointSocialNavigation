@@ -4,7 +4,7 @@
 #             narrow_hallway | narrow_hallway2 | narrow_hallway3 |
 #             belief_corridor | t_junction
 # Robot starting theta (orientation) is defined per-map in map.py.
-map: t_junction
+map: belief_corridor
 
 crowd:
   # Maximum number of humans alive simultaneously.
@@ -38,6 +38,11 @@ belief:
   # already inferred the robot's goal (and will therefore yield on its own).
   # 0.5 halves the penalty, allowing the robot to plan more aggressively.
   belief_discount_blocking: 0.5
+  # Angular uncertainty for the awareness likelihood model (radians).
+  # The awareness model measures whether the robot deviates from a straight
+  # line to its goal in a direction consistent with avoiding the human.
+  # Smaller values make the human more sensitive to small deviations.
+  awareness_sigma: 0.6
 
 joint_astar:
   # Penalty added per step when the robot moves (prefer waiting).

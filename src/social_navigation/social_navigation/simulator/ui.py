@@ -257,12 +257,24 @@ class SimulatorUI:
                 width = max(1, round(p * 4))
                 commands.append(Line(start=human_px, end=goal_px, color=color, width=width))
 
-            # Show the best belief percentage as text above the human.
+            # Show the best belief percentage and awareness as text above the human.
             best_p = float(beliefs.max())
             best_idx = int(np.argmax(beliefs))
+            awareness = float(crowd.robot_awareness_belief[idx])
             label = f"g{best_idx}:{best_p:.0%}"
             label_pos = (human_px[0] + 8, human_px[1] - 20)
             commands.append(Text(text=label, pos=label_pos, color=(160, 60, 0)))
+
+            # Awareness label below the goal belief label.
+            # Color: grey when low, green when high.
+            a_color = (
+                int(150 - awareness * 110),
+                int(150 + awareness * 50),
+                int(150 - awareness * 110),
+            )
+            awareness_label = f"aware:{awareness:.0%}"
+            awareness_pos = (human_px[0] + 8, human_px[1] - 38)
+            commands.append(Text(text=awareness_label, pos=awareness_pos, color=a_color))
 
         # Label each candidate goal with its index so the human labels match.
         for c_idx in range(num_c):

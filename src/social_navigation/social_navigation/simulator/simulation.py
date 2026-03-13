@@ -69,6 +69,7 @@ class NavigationSimulation:
             belief_sigma=config.belief_sigma,
             belief_yield_threshold=config.belief_yield_threshold,
             belief_lookahead=config.belief_lookahead,
+            awareness_sigma=config.awareness_sigma,
         )
         self.mcts_robot_ai = MCTSRobotAI(self.scenario, self.crowd)
         self.joint_astar_robot_ai = JointAStarRobotAI(

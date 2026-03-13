@@ -43,6 +43,7 @@ class SimConfig:
     belief_yield_threshold: float = 0.5
     belief_lookahead: float = 1.5
     belief_discount_blocking: float = 0.5
+    awareness_sigma: float = 0.6
     # SFM
     human_human_amplitude: float = 6.0
     human_human_decay: float = 0.7
@@ -93,6 +94,7 @@ def load_config(path: str | Path | None = None) -> SimConfig:
         belief_yield_threshold=get("belief", "belief_yield_threshold", 0.5),
         belief_lookahead=get("belief", "belief_lookahead", 1.5),
         belief_discount_blocking=get("belief", "belief_discount_blocking", 0.5),
+        awareness_sigma=get("belief", "awareness_sigma", 0.6),
         human_human_amplitude=get("sfm", "human_human_amplitude", 6.0),
         human_human_decay=get("sfm", "human_human_decay", 0.7),
         robot_human_amplitude=get("sfm", "robot_human_amplitude", 10.0),

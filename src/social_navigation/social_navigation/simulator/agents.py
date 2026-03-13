@@ -362,7 +362,9 @@ class JointAStarRobotAI:
             robot.command_w = 0.0
             return
 
-        if np.linalg.norm(robot.position - self.scenario.cell_to_world(goal)) < 0.6:
+        final_goal_world = self.scenario.cell_to_world(goal)
+        final_goal_dist = np.linalg.norm(robot.position - final_goal_world)
+        if final_goal_dist < 0.6:
             robot.command_v = 0.0
             robot.command_w = 0.0
             return
@@ -377,19 +379,61 @@ class JointAStarRobotAI:
             robot.command_w = 0.0
             return
 
+        # Single-cell path means "hold position" — navigate to the cell
+        # center so the robot is fully inside, then stop.
+        holding = len(robot.path) == 1
+
         target_world = self.scenario.cell_to_world(robot.path[robot.path_ptr])
         to_target = target_world - robot.position
-        if np.linalg.norm(to_target) < 0.35 and robot.path_ptr < len(robot.path) - 1:
+        dist_to_target = float(np.linalg.norm(to_target))
+
+        if not holding and dist_to_target < 0.35 and robot.path_ptr < len(robot.path) - 1:
             robot.path_ptr += 1
             target_world = self.scenario.cell_to_world(robot.path[robot.path_ptr])
             to_target = target_world - robot.position
+            dist_to_target = float(np.linalg.norm(to_target))
+
+        # Close enough to hold cell center — fully stop.
+        if holding and dist_to_target < 0.15:
+            robot.command_v = 0.0
+            robot.command_w = 0.0
+            return
 
         desired_heading = math.atan2(float(to_target[1]), float(to_target[0]))
         heading_error = (desired_heading - robot.theta + math.pi) % (2.0 * math.pi) - math.pi
-        distance = float(np.linalg.norm(to_target))
+
         robot.command_w = float(np.clip(2.3 * heading_error, -robot.max_omega, robot.max_omega))
         speed_scale = max(0.0, 1.0 - abs(heading_error) / math.pi)
-        robot.command_v = float(np.clip(1.8 * distance * speed_scale, 0.0, robot.max_speed))
+
+        if holding:
+            # Slow approach to cell center — proportional to distance so the
+            # robot settles smoothly instead of circling at cruise speed.
+            cruise_speed = float(np.clip(1.8 * dist_to_target * speed_scale, 0.0, robot.max_speed))
+        else:
+            # Keep speed high through intermediate waypoints.
+            cruise_speed = robot.max_speed * speed_scale
+            # Only slow down near the final manual goal.
+            slow_radius = 1.5
+            if final_goal_dist < slow_radius:
+                cruise_speed *= final_goal_dist / slow_radius
+
+            # "I see you" signal: when a human is on the corridor ahead,
+            # gently reduce speed proportional to proximity.  This gives
+            # the human observable evidence that the robot is aware of them,
+            # allowing their awareness belief to rise before yielding.
+            active = np.flatnonzero(self.crowd.active)
+            if active.size > 0:
+                dists = np.linalg.norm(
+                    self.crowd.positions[active] - robot.position, axis=1
+                )
+                min_dist = float(dists.min())
+                awareness_range = 15.0
+                if min_dist < awareness_range:
+                    # Scale from 1.0 (at range) to 0.6 (very close).
+                    caution = 0.6 + 0.4 * (min_dist / awareness_range)
+                    cruise_speed *= caution
+
+        robot.command_v = float(np.clip(cruise_speed, 0.0, robot.max_speed))
 
 
     def _replan(self, robot: Robot, robot_cell: tuple[int, int], robot_goal: tuple[int, int]) -> None:
@@ -437,27 +481,39 @@ class JointAStarRobotAI:
             self.planned_human_path = []
             return
 
-        # If the closest human has already formed a strong belief that the
-        # robot is heading toward its actual goal, it will anticipatorily
-        # yield (via _belief_conditioned_forces).  The robot can therefore
-        # plan less conservatively: reduce blocking_penalty so the planner
-        # doesn't over-invest in alcove manoeuvres that the human's own
-        # belief-driven behaviour has already resolved.
+        # Adjust planning conservatism based on the human's two beliefs:
+        #
+        # 1. Goal belief (does the human know where I'm going?)
+        #    High + correct → discount blocking penalty (human will yield).
+        #
+        # 2. Awareness belief (does the human think I see them?)
+        #    Low → increase proximity penalty (human won't yield, might
+        #    freeze or push back harder — robot should keep more distance).
         effective_blocking = self.blocking_penalty
+        effective_proximity = self.proximity_penalty
         best_belief = float(self.crowd.robot_goal_beliefs[closest].max())
+        awareness = float(self.crowd.robot_awareness_belief[closest])
+
         if best_belief >= self.crowd.belief_yield_threshold:
             best_idx = int(np.argmax(self.crowd.robot_goal_beliefs[closest]))
             inferred_goal = self.crowd._robot_goal_candidates[best_idx]
             actual_goal_world = self.scenario.cell_to_world(robot_goal)
             if np.linalg.norm(inferred_goal - actual_goal_world) < 2.0:
-                effective_blocking *= self.belief_discount_blocking
+                # Only discount if human also believes robot is aware.
+                # Both beliefs must be strong for cooperative yielding.
+                if awareness >= self.crowd.belief_yield_threshold:
+                    effective_blocking *= self.belief_discount_blocking
+                else:
+                    # Human knows goal but thinks robot is unaware — human
+                    # will be defensive, not cooperative.  Plan conservatively.
+                    effective_proximity *= 1.5
 
         result = joint_a_star(
             self.scenario, robot_cell, robot_goal, human_cell, human_goal_cell,
             robot_move_penalty=self.robot_move_penalty,
             human_detour_penalty=self.human_detour_penalty,
             blocking_penalty=effective_blocking,
-            proximity_penalty=self.proximity_penalty,
+            proximity_penalty=effective_proximity,
             proximity_threshold=self.proximity_threshold,
         )
         if result and len(result.robot_path) > 1:
@@ -507,6 +563,7 @@ class Crowd:
         belief_sigma: float = 0.5,
         belief_yield_threshold: float = 0.5,
         belief_lookahead: float = 1.5,
+        awareness_sigma: float = 0.6,
     ) -> None:
         self.max_humans = max_humans
         self.scenario = scenario
@@ -559,6 +616,17 @@ class Crowd:
         # Seconds ahead to project robot's position for anticipatory repulsion.
         self.belief_lookahead = belief_lookahead
 
+        # --- Awareness belief state -----------------------------------------
+        # Each human also estimates whether the robot is *aware* of their
+        # presence.  The observation model watches the robot's lateral
+        # deviation from a straight-line path to its inferred goal: deviation
+        # toward the human → likely aware; straight-line heading → uncertain.
+        # Scalar per human: P(robot aware of me), initialised to 0.5.
+        self.robot_awareness_belief = np.full(max_humans, 0.5, dtype=np.float32)
+        self.awareness_sigma = awareness_sigma
+        # Store previous robot heading to compute curvature (heading rate).
+        self._prev_robot_theta: float | None = None
+
         # --- Yield state (belief-conditioned replanning) ---
         # When a human's belief is strong enough, it reroutes through a nearby
         # alcove cell and waits there until the robot has passed.
@@ -586,10 +654,11 @@ class Crowd:
         self.paths[idx] = path
         self.path_ptr[idx] = 1 if len(path) > 1 else 0
         self.replan_timer[idx] = random.uniform(0.4, 1.2)
-        # Reset belief to uniform so new spawns don't inherit stale posteriors.
+        # Reset beliefs so new spawns don't inherit stale posteriors.
         num_candidates = self._robot_goal_candidates.shape[0]
         if num_candidates > 0:
             self.robot_goal_beliefs[idx] = 1.0 / num_candidates
+        self.robot_awareness_belief[idx] = 0.5
         self.yield_target[idx] = None
         self.yielding[idx] = False
         self.total_spawned += 1
@@ -605,6 +674,7 @@ class Crowd:
         num_candidates = self._robot_goal_candidates.shape[0]
         if num_candidates > 0:
             self.robot_goal_beliefs[idx] = 1.0 / num_candidates
+        self.robot_awareness_belief[idx] = 0.5
         self.yield_target[idx] = None
         self.yielding[idx] = False
 
@@ -629,6 +699,8 @@ class Crowd:
         # Update each human's belief about the robot's intended destination
         # before computing forces so anticipatory terms use fresh posteriors.
         self._update_robot_goal_beliefs(robot)
+        # Update each human's belief about whether the robot is aware of them.
+        self._update_robot_awareness_beliefs(active_idxs, robot, dt)
         # Check whether each human should start or stop yielding.
         self._update_yield_behavior(active_idxs, robot)
         for i in active_idxs:
@@ -737,8 +809,15 @@ class Crowd:
                 continue
 
             # Should this human start yielding?
+            # Need strong goal belief AND no evidence of unawareness.
+            # Yielding only makes sense if the human knows where the robot is
+            # going AND hasn't observed clear signs that the robot is unaware.
+            # The gate is set low (0.3) so the neutral prior (0.5) doesn't
+            # block yielding — only actively negative evidence does.
             if float(self.robot_goal_beliefs[idx].max()) < self.belief_yield_threshold:
                 continue
+            if float(self.robot_awareness_belief[idx]) < 0.3:
+                continue  # strong evidence robot doesn't see me — stay defensive
 
             # Robot must be approaching (velocity toward this human).
             robot_vel = np.array(
@@ -800,6 +879,13 @@ class Crowd:
         robot_cell = self.scenario.world_to_cell(robot.position)
 
         # Scan cells adjacent to the path for off-corridor alcove cells.
+        # A valid yield cell must:
+        # 1. Be free and NOT in the corridor set
+        # 2. Have walls on ≥2 cardinal sides — this ensures it's a genuine
+        #    pocket/alcove rather than the second row of a wide corridor.
+        #    In a 2-cell-wide hallway, cells in the "other row" typically
+        #    have only 1 wall (the far side) and 3 open neighbors.  A real
+        #    alcove is tucked against walls on at least 2 sides.
         best_cell = None
         best_dist = float("inf")
         for cell in path:
@@ -808,7 +894,14 @@ class Crowd:
                 if not self.scenario.is_free(neighbor):
                     continue
                 if neighbor in corridor_set:
-                    continue  # still on the main corridor — robot would walk through it
+                    continue  # still on the main corridor
+                # Count walls (including out-of-bounds) on cardinal sides.
+                wall_count = sum(
+                    1 for dx2, dy2 in [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                    if not self.scenario.is_free((neighbor[0] + dx2, neighbor[1] + dy2))
+                )
+                if wall_count < 2:
+                    continue  # too open — corridor extension, not an alcove
                 # Prefer the alcove cell closest to the human that is
                 # between the human and the robot (so the human reaches it
                 # before they meet).
@@ -893,6 +986,143 @@ class Crowd:
             if total > 1e-10:
                 self.robot_goal_beliefs[i] = updated / total
 
+    def _update_robot_awareness_beliefs(
+        self, active_idxs: np.ndarray, robot: Robot, dt: float
+    ) -> None:
+        """Bayesian update of each human's belief that the robot is aware of them.
+
+        Two complementary observation channels:
+
+        1. **Lateral avoidance** — Does the robot deviate from a straight-line
+           path to its goal, away from the human?  Works in open spaces and
+           junctions where the robot can steer laterally.
+
+        2. **Speed reduction** — Does the robot slow down when approaching
+           the human?  Works in head-on corridor scenarios where lateral
+           deviation is impossible.  An aware robot slows or waits; an
+           unaware one charges through at full speed.
+
+        The combined likelihood is the product of both channel likelihoods
+        (independent observations).
+        """
+        num_candidates = self._robot_goal_candidates.shape[0]
+        if num_candidates == 0:
+            return
+
+        robot_speed = abs(robot.command_v)
+
+        # Robot's actual heading direction (used for lateral channel).
+        robot_heading = np.array(
+            [math.cos(robot.theta), math.sin(robot.theta)], dtype=np.float32
+        )
+
+        for i in active_idxs:
+            idx = int(i)
+
+            # Skip awareness updates once the human has settled into the
+            # yield cell — the robot driving at full speed through the
+            # now-clear corridor is correct, not evidence of unawareness.
+            # But keep updating while the human is still en route to the
+            # yield cell so awareness can accumulate during the approach.
+            if self.yielding[idx] and self.yield_target[idx] is not None:
+                yt_pos = self.scenario.cell_to_world(self.yield_target[idx])
+                if float(np.linalg.norm(self.positions[idx] - yt_pos)) < 0.6:
+                    continue  # settled in alcove — skip
+
+            # Use this human's MAP estimate of the robot's goal.
+            best_goal_idx = int(np.argmax(self.robot_goal_beliefs[idx]))
+            goal_pos = self._robot_goal_candidates[best_goal_idx]
+
+            # Direction from robot to this human.
+            to_human = self.positions[idx] - robot.position
+            human_dist = float(np.linalg.norm(to_human))
+            if human_dist < 0.5 or human_dist > 15.0:
+                continue  # too close or too far for meaningful inference
+
+            # --- Channel 1: Lateral avoidance ---
+            lateral_likelihood_aware = 1.0
+            lateral_likelihood_unaware = 1.0
+
+            if robot_speed >= 0.1:
+                to_goal = goal_pos - robot.position
+                goal_dist = float(np.linalg.norm(to_goal))
+                if goal_dist > 0.5:
+                    to_goal_dir = to_goal / goal_dist
+                    to_human_dir = to_human / human_dist
+
+                    # Which side is the human on (cross product)?
+                    lateral_human = float(
+                        to_goal_dir[0] * to_human_dir[1]
+                        - to_goal_dir[1] * to_human_dir[0]
+                    )
+                    # Which side is the robot heading (cross product)?
+                    lateral_heading = float(
+                        to_goal_dir[0] * robot_heading[1]
+                        - to_goal_dir[1] * robot_heading[0]
+                    )
+                    # Positive avoidance_signal = robot steers away from human.
+                    avoidance_signal = -lateral_human * lateral_heading
+
+                    lateral_likelihood_aware = math.exp(
+                        -(max(0.0, -avoidance_signal) ** 2)
+                        / (2.0 * self.awareness_sigma ** 2)
+                    )
+                    lateral_likelihood_unaware = math.exp(
+                        -(max(0.0, avoidance_signal) ** 2)
+                        / (2.0 * self.awareness_sigma ** 2)
+                    )
+
+            # --- Channel 2: Speed reduction when approaching ---
+            speed_likelihood_aware = 1.0
+            speed_likelihood_unaware = 1.0
+
+            # Only informative when robot is heading toward the human.
+            robot_vel = np.array(
+                [robot.command_v * math.cos(robot.theta),
+                 robot.command_v * math.sin(robot.theta)],
+                dtype=np.float32,
+            )
+            approaching = float(np.dot(robot_vel, to_human)) > 0.0
+
+            if approaching and human_dist < 15.0:
+                # Expected speed of an unaware robot: full speed.
+                # An aware robot reduces speed as it gets closer.
+                # speed_ratio ∈ [0, 1]: how much of max speed the robot uses.
+                speed_ratio = robot_speed / max(robot.max_speed, 0.1)
+                # Expected speed ratio for an aware robot at this distance:
+                # aware robots slow down roughly proportional to proximity.
+                # At dist=15 → expected ~1.0; at dist=2 → expected ~0.2.
+                expected_aware_ratio = min(1.0, human_dist / 12.0)
+
+                # How well does observed speed match aware vs unaware model?
+                # Use a wider sigma at long distance (weak signal) and tighter
+                # sigma at close range (strong signal).
+                proximity_weight = max(0.0, 1.0 - human_dist / 15.0)
+                sigma_s = self.awareness_sigma / (0.5 + proximity_weight)
+                speed_likelihood_aware = math.exp(
+                    -((speed_ratio - expected_aware_ratio) ** 2)
+                    / (2.0 * sigma_s ** 2)
+                )
+                speed_likelihood_unaware = math.exp(
+                    -((speed_ratio - 1.0) ** 2)
+                    / (2.0 * sigma_s ** 2)
+                )
+
+            # --- Combined Bayesian update ---
+            likelihood_aware = lateral_likelihood_aware * speed_likelihood_aware
+            likelihood_unaware = lateral_likelihood_unaware * speed_likelihood_unaware
+
+            prior_aware = float(self.robot_awareness_belief[idx])
+            prior_unaware = 1.0 - prior_aware
+
+            posterior_aware = likelihood_aware * prior_aware
+            posterior_unaware = likelihood_unaware * prior_unaware
+            total = posterior_aware + posterior_unaware
+            if total > 1e-10:
+                self.robot_awareness_belief[idx] = np.float32(
+                    np.clip(posterior_aware / total, 0.01, 0.99)
+                )
+
     def _belief_conditioned_forces(
         self, active_idxs: np.ndarray, robot: Robot
     ) -> np.ndarray:
@@ -931,10 +1161,20 @@ class Crowd:
 
             direction = diff / dist
             belief_strength = float(self.robot_goal_beliefs[i].max())
+            awareness = float(self.robot_awareness_belief[i])
+
+            # Awareness modulates force strength:
+            # - High awareness (≈1): human trusts robot will avoid, moderate
+            #   anticipatory nudge (1.0× base).
+            # - Low awareness (≈0): human is defensive — robot might not see
+            #   me, so push harder to self-protect (up to 2.0× base).
+            awareness_scale = 2.0 - awareness
+
             mag = (
                 self.robot_human_amplitude
                 * math.exp(-dist / self.robot_human_decay)
                 * belief_strength
+                * awareness_scale
             )
             forces[j] += direction * mag
 
