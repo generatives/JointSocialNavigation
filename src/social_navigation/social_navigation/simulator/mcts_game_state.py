@@ -14,19 +14,19 @@ class MCTSGameStateConfig:
     mcts_config: MCTSConfig
     robot_speed: float
     dt: float
-    angle: float
+    robot_angular_velocity: float
     uncomfortable_distance: float
     map: ScenarioMap
     robot_radius: float
     human_radius: float
     starting_distances: float
-    orientation_changes: np.ndarray = field(init=False)
+    robot_angular_velocity_actions: np.ndarray = field(init=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self,
-            "orientation_changes",
-            np.array([-self.angle, 0.0, self.angle], dtype=np.float32),
+            "robot_angular_velocity_actions",
+            np.array([-self.robot_angular_velocity, 0.0, self.robot_angular_velocity], dtype=np.float32),
         )
 
 
@@ -67,16 +67,37 @@ class MCTSGameState(GameStateProtocol):
 
     def legal_actions(self) -> Iterable[Iterable[Action]]:
         return self.config.mcts_config.legal_actions
+    
+    def _propagate_unicycle(self, x, y, theta, v, omega, dt, eps=1e-9):
+        if abs(omega) < eps:
+            x_new = x + v * dt * math.cos(theta)
+            y_new = y + v * dt * math.sin(theta)
+            theta_new = theta
+        else:
+            theta_new = theta + omega * dt
+            x_new = x + (v / omega) * (math.sin(theta_new) - math.sin(theta))
+            y_new = y - (v / omega) * (math.cos(theta_new) - math.cos(theta))
+
+        return x_new, y_new, theta_new
+    
+    def get_command_velocities(self, robot_action: int) -> List[float]:
+        robot_speed = self.config.robot_speed if robot_action % 2 == 0 else 0
+        robot_angular_velocity = self.config.robot_angular_velocity_actions[int(robot_action / 2)]
+        return robot_speed, robot_angular_velocity
 
     def apply_actions(self, actions: List[int]) -> "GameStateProtocol":
 
         human_velocities = self._calculate_human_velocities()
 
+        robot_position = self.positions[0, :]
         robot_velocity = self.velocities[0, :]
         robot_orientation = np.arctan2(robot_velocity[1], robot_velocity[0])
-        rotation = self.config.orientation_changes[int(actions[0] / 2)]
-        robot_speed = self.config.robot_speed if actions[0] % 2 == 0 else 0
-        robot_new_orientation = robot_orientation + rotation
+        robot_speed, robot_angular_velocity = self.get_command_velocities(actions[0])
+
+        x_new, y_new, robot_new_orientation = self._propagate_unicycle(robot_position[0], robot_position[1],
+                                                                       robot_orientation,
+                                                                       robot_speed, robot_angular_velocity,
+                                                                       self.config.dt)
 
         new_velocities = np.empty_like(self.velocities)
         new_velocities[0, 0] = robot_speed * np.cos(robot_new_orientation)
@@ -84,6 +105,8 @@ class MCTSGameState(GameStateProtocol):
         new_velocities[1:] = human_velocities
 
         new_positions = self.positions + self.config.dt * new_velocities
+        new_positions[0, 0] = x_new
+        new_positions[0, 1] = y_new
 
         return MCTSGameState(
             new_positions,
@@ -130,8 +153,9 @@ class MCTSGameState(GameStateProtocol):
         distances = np.linalg.norm(self.agent_goal_positions - self.positions, axis=1)
 
         # scale by starting distances so that staying at the start is worth -1.0 and
-        # reaching the distination is worth 0.0
-        scores = -distances / self.config.starting_distances
+        # reaching the destination is worth 0.0
+        safe_starting = np.where(self.config.starting_distances > 0, self.config.starting_distances, 1.0)
+        scores = np.where(self.config.starting_distances > 0, -distances / safe_starting, 0.0)
 
         return scores
     
