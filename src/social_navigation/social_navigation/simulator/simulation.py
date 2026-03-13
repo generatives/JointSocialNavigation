@@ -18,6 +18,8 @@ _MAP_BUILDERS = {
     "narrow_hallway": ScenarioMap.build_narrow_hallway,
     "narrow_hallway2": ScenarioMap.build_narrow_hallway2,
     "narrow_hallway3": ScenarioMap.build_narrow_hallway3,
+    "belief_corridor": ScenarioMap.build_belief_corridor,
+    "t_junction": ScenarioMap.build_t_junction,
 }
 
 
@@ -27,6 +29,7 @@ class StepMetrics:
     robot_human_collisions: int
     robot_social_force_generated: float
     distance_travelled: float
+    min_human_robot_distance: float
 
 
 class NavigationSimulation:
@@ -148,4 +151,5 @@ class NavigationSimulation:
             robot_human_collisions=crowd_metrics.robot_human_collisions,
             robot_social_force_generated=crowd_metrics.robot_social_force_generated,
             distance_travelled=robot_metrics.distance_travelled,
+            min_human_robot_distance=crowd_metrics.min_human_robot_distance,
         )

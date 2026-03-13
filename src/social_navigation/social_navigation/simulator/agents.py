@@ -70,6 +70,7 @@ class RobotStepMetrics:
 class CrowdStepMetrics:
     robot_human_collisions: int
     robot_social_force_generated: float
+    min_human_robot_distance: float
 
 
 class RobotAI:
@@ -400,6 +401,25 @@ class JointAStarRobotAI:
         if human_cell is None or human_goal_cell is None or human_cell == robot_cell:
             return
 
+        # If the human is actively yielding (in the alcove) or already
+        # behind the robot (they've passed each other), the corridor is
+        # clear — skip joint planning and use plain A*.
+        human_to_goal = (
+            abs(human_cell[0] - robot_goal[0]) + abs(human_cell[1] - robot_goal[1])
+        )
+        robot_to_goal = (
+            abs(robot_cell[0] - robot_goal[0]) + abs(robot_cell[1] - robot_goal[1])
+        )
+        human_behind = human_to_goal > robot_to_goal
+        if self.crowd.yielding[closest] or human_behind:
+            path = a_star(self.scenario.grid, robot_cell, robot_goal)
+            if path:
+                robot.path = path
+                robot.path_ptr = 1 if len(path) > 1 else 0
+            self.planned_robot_path = list(robot.path)
+            self.planned_human_path = []
+            return
+
         # If the closest human has already formed a strong belief that the
         # robot is heading toward its actual goal, it will anticipatorily
         # yield (via _belief_conditioned_forces).  The robot can therefore
@@ -495,13 +515,9 @@ class Crowd:
 
         # --- Belief state -------------------------------------------------
         # Candidate destinations the robot might be heading to.
-        # We use human_starts ∪ human_ends as a proxy for all meaningful
-        # navigation goals in the environment.  At least two candidates are
-        # needed so the belief can discriminate; if none exist (e.g. empty
-        # map) belief logic is skipped.
-        _candidate_cells: list[tuple[int, int]] = list(
-            {*scenario.human_starts, *scenario.human_ends}
-        )
+        # Sourced from scenario.robot_goal_candidates which prefers explicit
+        # robot_goals when available, falling back to human_starts ∪ human_ends.
+        _candidate_cells: list[tuple[int, int]] = scenario.robot_goal_candidates
         if _candidate_cells:
             self._robot_goal_candidates = np.array(
                 [scenario.cell_to_world(c) for c in _candidate_cells],
@@ -523,6 +539,12 @@ class Crowd:
         self.belief_yield_threshold = belief_yield_threshold
         # Seconds ahead to project robot's position for anticipatory repulsion.
         self.belief_lookahead = belief_lookahead
+
+        # --- Yield state (belief-conditioned replanning) ---
+        # When a human's belief is strong enough, it reroutes through a nearby
+        # alcove cell and waits there until the robot has passed.
+        self.yield_target: list[tuple[int, int] | None] = [None] * max_humans
+        self.yielding = np.zeros(max_humans, dtype=bool)
 
     def spawn(self) -> bool:
         if self.max_spawns is not None and self.total_spawned >= self.max_spawns:
@@ -549,6 +571,8 @@ class Crowd:
         num_candidates = self._robot_goal_candidates.shape[0]
         if num_candidates > 0:
             self.robot_goal_beliefs[idx] = 1.0 / num_candidates
+        self.yield_target[idx] = None
+        self.yielding[idx] = False
         self.total_spawned += 1
         return True
 
@@ -561,10 +585,13 @@ class Crowd:
         num_candidates = self._robot_goal_candidates.shape[0]
         if num_candidates > 0:
             self.robot_goal_beliefs[idx] = 1.0 / num_candidates
+        self.yield_target[idx] = None
+        self.yielding[idx] = False
 
     def update(self, dt: float, robot: Robot) -> CrowdStepMetrics:
         robot_social_force_generated = 0.0
         robot_human_collisions = 0
+        min_human_robot_distance = float("inf")
         self.spawn_accumulator += dt * self.spawn_rate_per_sec
         while self.spawn_accumulator >= 1.0:
             self.spawn()
@@ -575,12 +602,15 @@ class Crowd:
             return CrowdStepMetrics(
                 robot_human_collisions=robot_human_collisions,
                 robot_social_force_generated=robot_social_force_generated,
+                min_human_robot_distance=min_human_robot_distance,
             )
 
         self.replan_timer[active_idxs] -= dt
         # Update each human's belief about the robot's intended destination
         # before computing forces so anticipatory terms use fresh posteriors.
         self._update_robot_goal_beliefs(robot)
+        # Check whether each human should start or stop yielding.
+        self._update_yield_behavior(active_idxs, robot)
         for i in active_idxs:
             self._replan_if_needed(int(i))
 
@@ -617,14 +647,21 @@ class Crowd:
         robot_human_collisions += self._resolve_robot_collisions(active_idxs, robot)
 
         for i in active_idxs:
+            d = float(np.linalg.norm(self.positions[i] - robot.position))
+            if d < min_human_robot_distance:
+                min_human_robot_distance = d
             if np.linalg.norm(self.positions[i] - self.goals[i]) < 0.6:
                 self.despawn(int(i))
         return CrowdStepMetrics(
             robot_human_collisions=robot_human_collisions,
             robot_social_force_generated=robot_social_force_generated,
+            min_human_robot_distance=min_human_robot_distance,
         )
 
     def _current_waypoint(self, idx: int) -> np.ndarray:
+        # When yielding, always steer toward the yield cell (and stay there).
+        if self.yielding[idx] and self.yield_target[idx] is not None:
+            return self.scenario.cell_to_world(self.yield_target[idx])
         path = self.paths[idx]
         if not path:
             return self.goals[idx]
@@ -643,6 +680,8 @@ class Crowd:
             self.path_ptr[idx] += 1
 
     def _replan_if_needed(self, idx: int) -> None:
+        if self.yielding[idx]:
+            return  # don't overwrite yield path
         if self.replan_timer[idx] > 0.0:
             return
         self.replan_timer[idx] = random.uniform(0.8, 1.5)
@@ -654,6 +693,132 @@ class Crowd:
         if path:
             self.paths[idx] = path
             self.path_ptr[idx] = 1 if len(path) > 1 else 0
+
+    # ------------------------------------------------------------------
+    # Belief-conditioned yielding
+    # ------------------------------------------------------------------
+
+    def _update_yield_behavior(self, active_idxs: np.ndarray, robot: Robot) -> None:
+        """Start or stop yielding for each active human based on belief."""
+        for i in active_idxs:
+            idx = int(i)
+
+            if self.yielding[idx]:
+                # Check if the robot has passed the yield cell — time to resume.
+                if self._robot_has_passed(idx, robot):
+                    self.yielding[idx] = False
+                    self.yield_target[idx] = None
+                    self.replan_timer[idx] = 0.0  # force immediate replan to goal
+                continue
+
+            # Should this human start yielding?
+            if float(self.robot_goal_beliefs[idx].max()) < self.belief_yield_threshold:
+                continue
+
+            # Robot must be approaching (velocity toward this human).
+            robot_vel = np.array(
+                [robot.command_v * math.cos(robot.theta),
+                 robot.command_v * math.sin(robot.theta)],
+                dtype=np.float32,
+            )
+            to_human = self.positions[idx] - robot.position
+            if np.dot(robot_vel, to_human) < 0.1:
+                continue  # robot not heading toward human
+
+            dist = float(np.linalg.norm(to_human))
+            if dist < 2.0 or dist > 25.0:
+                continue  # too close (reactive forces handle it) or too far
+
+            yield_cell = self._find_yield_cell(idx, robot)
+            if yield_cell is None:
+                continue
+
+            self.yield_target[idx] = yield_cell
+            self.yielding[idx] = True
+
+            # Replan path toward the yield cell.
+            human_cell = self.scenario.nearest_free(
+                self.scenario.world_to_cell(self.positions[idx])
+            )
+            if human_cell is not None:
+                path = a_star(self.scenario.grid, human_cell, yield_cell)
+                if path:
+                    self.paths[idx] = path
+                    self.path_ptr[idx] = 1 if len(path) > 1 else 0
+
+    def _find_yield_cell(self, human_idx: int, robot: Robot) -> tuple[int, int] | None:
+        """Find a free cell off the main corridor where the human can step aside."""
+        human_cell = self.scenario.nearest_free(
+            self.scenario.world_to_cell(self.positions[human_idx])
+        )
+        goal_cell = self.scenario.nearest_free(
+            self.scenario.world_to_cell(self.goals[human_idx])
+        )
+        if human_cell is None or goal_cell is None:
+            return None
+
+        path = a_star(self.scenario.grid, human_cell, goal_cell)
+        if not path:
+            return None
+
+        # Build the full corridor cell set by connecting all robot goal
+        # candidates pairwise.  Any cell on this main corridor would still
+        # block the robot, so it is NOT a valid hiding spot.
+        corridor_set: set[tuple[int, int]] = set()
+        candidates = self.scenario.robot_goal_candidates
+        for i, s in enumerate(candidates):
+            for e in candidates[i + 1:]:
+                cp = a_star(self.scenario.grid, s, e)
+                if cp:
+                    corridor_set.update(cp)
+
+        robot_cell = self.scenario.world_to_cell(robot.position)
+
+        # Scan cells adjacent to the path for off-corridor alcove cells.
+        best_cell = None
+        best_dist = float("inf")
+        for cell in path:
+            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                neighbor = (cell[0] + dx, cell[1] + dy)
+                if not self.scenario.is_free(neighbor):
+                    continue
+                if neighbor in corridor_set:
+                    continue  # still on the main corridor — robot would walk through it
+                # Prefer the alcove cell closest to the human that is
+                # between the human and the robot (so the human reaches it
+                # before they meet).
+                dist_to_human = (
+                    abs(neighbor[0] - human_cell[0])
+                    + abs(neighbor[1] - human_cell[1])
+                )
+                dist_to_robot = (
+                    abs(neighbor[0] - robot_cell[0])
+                    + abs(neighbor[1] - robot_cell[1])
+                )
+                if dist_to_human < dist_to_robot and dist_to_human < best_dist:
+                    best_dist = dist_to_human
+                    best_cell = neighbor
+
+        return best_cell
+
+    def _robot_has_passed(self, human_idx: int, robot: Robot) -> bool:
+        """True when the robot has moved past the yield cell toward the human's start."""
+        yield_cell = self.yield_target[human_idx]
+        if yield_cell is None:
+            return True
+
+        robot_cell = self.scenario.world_to_cell(robot.position)
+        goal_cell = self.scenario.world_to_cell(self.goals[human_idx])
+
+        yield_to_goal = (
+            abs(yield_cell[0] - goal_cell[0]) + abs(yield_cell[1] - goal_cell[1])
+        )
+        robot_to_goal = (
+            abs(robot_cell[0] - goal_cell[0]) + abs(robot_cell[1] - goal_cell[1])
+        )
+        # Robot is "past" when it's farther from the human's goal than the
+        # yield cell is (i.e. it has crossed to the other side).
+        return robot_to_goal > yield_to_goal
 
     def _update_robot_goal_beliefs(self, robot: Robot) -> None:
         """Bayesian update of each active human's belief about the robot's goal.

@@ -23,6 +23,7 @@ class MouseClick:
 class InputSnapshot:
     quit_requested: bool = False
     tab_pressed: bool = False
+    b_pressed: bool = False
     mouse_clicks: list[MouseClick] = field(default_factory=list)
     up_pressed: bool = False
     down_pressed: bool = False
@@ -96,6 +97,7 @@ class ThreadedPygameRuntime:
         self._input_lock = threading.Lock()
         self._quit_requested = False
         self._tab_pressed = False
+        self._b_pressed = False
         self._mouse_clicks: list[MouseClick] = []
         self._up_pressed = False
         self._down_pressed = False
@@ -133,6 +135,7 @@ class ThreadedPygameRuntime:
             snapshot = InputSnapshot(
                 quit_requested=self._quit_requested,
                 tab_pressed=self._tab_pressed,
+                b_pressed=self._b_pressed,
                 mouse_clicks=list(self._mouse_clicks),
                 up_pressed=self._up_pressed,
                 down_pressed=self._down_pressed,
@@ -140,6 +143,7 @@ class ThreadedPygameRuntime:
                 right_pressed=self._right_pressed,
             )
             self._tab_pressed = False
+            self._b_pressed = False
             self._mouse_clicks.clear()
         return snapshot
 
@@ -199,6 +203,8 @@ class ThreadedPygameRuntime:
         with self._input_lock:
             if key == pygame.K_TAB and pressed:
                 self._tab_pressed = True
+            elif key == pygame.K_b and pressed:
+                self._b_pressed = True
             elif key == pygame.K_UP:
                 self._up_pressed = pressed
             elif key == pygame.K_DOWN:

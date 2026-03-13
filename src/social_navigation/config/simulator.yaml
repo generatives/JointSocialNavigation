@@ -1,17 +1,18 @@
 # Simulator configuration
 # -------------------------
 # map: one of empty | default | hallway_crossing | hallway_collision |
-#             narrow_hallway | narrow_hallway2 | narrow_hallway3
+#             narrow_hallway | narrow_hallway2 | narrow_hallway3 |
+#             belief_corridor | t_junction
 # Robot starting theta (orientation) is defined per-map in map.py.
-map: narrow_hallway
+map: t_junction
 
 crowd:
   # Maximum number of humans alive simultaneously.
-  max_humans: 2
+  max_humans: 1
   # Total spawns allowed across the whole run.  Use null for unlimited.
-  max_spawns: 4
+  max_spawns: 1
   # Average spawns per second (fractional accumulator).
-  spawn_rate_per_sec: 0.2
+  spawn_rate_per_sec: 1.0
   # Preferred walking speed range [min, max] in world units/second.
   pref_speed_min: 1.0
   pref_speed_max: 1.7
@@ -73,4 +74,4 @@ display:
   # Pixels per grid cell.  Increase for a larger window.
   cell_px: 72
   # Seconds of physics warm-up before the UI loop begins.
-  warmup_seconds: 6.0
+  warmup_seconds: 2.0

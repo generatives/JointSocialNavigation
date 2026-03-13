@@ -35,6 +35,11 @@ class SimulatorUI:
             font_size=18,
         )
         self.input_snapshot = InputSnapshot()
+        self.show_beliefs = True
+        # Running metrics for HUD display.
+        self._cumulative_social_force = 0.0
+        self._min_human_robot_distance = float("inf")
+        self._robot_idle_time = 0.0
 
     def run(self) -> None:
         self.runtime.start()
@@ -66,6 +71,8 @@ class SimulatorUI:
             return False
         if snapshot.tab_pressed:
             self.simulation.cycle_control_mode()
+        if snapshot.b_pressed:
+            self.show_beliefs = not self.show_beliefs
         if self.simulation.control_mode != "MANUAL":
             for click in snapshot.mouse_clicks:
                 clicked = self._px_to_cell(click.pos)
@@ -87,9 +94,15 @@ class SimulatorUI:
                 w -= 2.5
             if self.input_snapshot.right_pressed:
                 w += 2.5
-            self.simulation.update(dt, manual_command=(v, w))
-            return
-        self.simulation.update(dt)
+            metrics = self.simulation.update(dt, manual_command=(v, w))
+        else:
+            metrics = self.simulation.update(dt)
+        # Accumulate metrics for HUD.
+        self._cumulative_social_force += metrics.robot_social_force_generated
+        if metrics.min_human_robot_distance < self._min_human_robot_distance:
+            self._min_human_robot_distance = metrics.min_human_robot_distance
+        if abs(self.simulation.robot.command_v) < 0.05:
+            self._robot_idle_time += dt
 
     def _draw(self) -> None:
         scenario = self.simulation.scenario
@@ -127,6 +140,10 @@ class SimulatorUI:
             self._draw_markers(commands, [self.simulation.goal], (235, 120, 50))
 
         active_idxs = np.flatnonzero(crowd.active)
+
+        if self.show_beliefs:
+            self._draw_beliefs(commands, crowd, active_idxs)
+
         for idx in active_idxs:
             self._draw_circle(commands, crowd.positions[idx], float(crowd.radius[idx]), (58, 138, 246))
 
@@ -138,13 +155,32 @@ class SimulatorUI:
         heading = robot.position + robot.forward() * (robot.radius + 0.45)
         commands.append(Line(start=self._to_px(robot.position), end=self._to_px(heading), color=(24, 27, 28), width=3))
 
+        # Draw yield target markers (green diamond) for yielding humans.
+        for idx in active_idxs:
+            if crowd.yielding[idx] and crowd.yield_target[idx] is not None:
+                yt = crowd.yield_target[idx]
+                center = self._to_px(scenario.cell_to_world(yt))
+                commands.append(Circle(center=center, radius=self.cell_px // 4, color=(40, 180, 80), width=3))
+                commands.append(Text(text="yield", pos=(center[0] + 5, center[1] - 18), color=(40, 150, 60)))
+
         mode = self.simulation.control_mode
         manual_goal = "None" if self.simulation.goal is None else f"{self.simulation.goal[0]},{self.simulation.goal[1]}"
+        belief_indicator = "[B]eliefs ON" if self.show_beliefs else "[B]eliefs OFF"
         commands.append(
             Text(
-                text=f"Mode: {mode} | TAB cycle | LMB set AI goal | RMB clear | goal: {manual_goal}",
+                text=f"Mode: {mode} | TAB cycle | LMB set AI goal | RMB clear | goal: {manual_goal} | {belief_indicator}",
                 pos=(10, 8),
                 color=(12, 12, 12),
+            )
+        )
+        # Metrics HUD (second line).
+        min_d = self._min_human_robot_distance
+        min_d_str = f"{min_d:.2f}" if min_d < 1e6 else "--"
+        commands.append(
+            Text(
+                text=f"SFM:{self._cumulative_social_force:.1f}  minDist:{min_d_str}  robotIdle:{self._robot_idle_time:.1f}s",
+                pos=(10, 30),
+                color=(80, 80, 80),
             )
         )
 
@@ -176,6 +212,58 @@ class SimulatorUI:
 
         commands.append(Present())
         self.runtime.submit_frame(commands)
+
+    def _draw_beliefs(
+        self,
+        commands: list[DrawCommand],
+        crowd,
+        active_idxs: np.ndarray,
+    ) -> None:
+        """Visualize each human's Bayesian belief about the robot's goal.
+
+        For every active human, draw a line from the human to each candidate
+        goal.  The line colour and width are proportional to the belief
+        probability: low probability → faint grey, high probability → vivid
+        amber.  A text label near the human shows the dominant belief
+        probability as a percentage.
+        """
+        candidates = crowd._robot_goal_candidates
+        num_c = candidates.shape[0]
+        if num_c == 0 or active_idxs.size == 0:
+            return
+
+        # Colour endpoints for lerp: grey (low) → amber (high).
+        bg = (200, 200, 200)
+        fg = (220, 110, 20)
+
+        for idx in active_idxs:
+            beliefs = crowd.robot_goal_beliefs[idx]
+            human_px = self._to_px(crowd.positions[idx])
+
+            for c_idx in range(num_c):
+                p = float(beliefs[c_idx])
+                if p < 0.05:
+                    continue  # skip nearly-zero beliefs to reduce clutter
+                goal_px = self._to_px(candidates[c_idx])
+                color = (
+                    int(bg[0] + p * (fg[0] - bg[0])),
+                    int(bg[1] + p * (fg[1] - bg[1])),
+                    int(bg[2] + p * (fg[2] - bg[2])),
+                )
+                width = max(1, round(p * 4))
+                commands.append(Line(start=human_px, end=goal_px, color=color, width=width))
+
+            # Show the best belief percentage as text above the human.
+            best_p = float(beliefs.max())
+            best_idx = int(np.argmax(beliefs))
+            label = f"g{best_idx}:{best_p:.0%}"
+            label_pos = (human_px[0] + 8, human_px[1] - 20)
+            commands.append(Text(text=label, pos=label_pos, color=(160, 60, 0)))
+
+        # Label each candidate goal with its index so the human labels match.
+        for c_idx in range(num_c):
+            goal_px = self._to_px(candidates[c_idx])
+            commands.append(Text(text=f"g{c_idx}", pos=(goal_px[0] + 5, goal_px[1] - 18), color=(160, 60, 0)))
 
     def _draw_markers(
         self,
