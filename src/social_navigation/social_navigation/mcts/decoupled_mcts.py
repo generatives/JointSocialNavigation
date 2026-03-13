@@ -13,27 +13,29 @@ ValueMap = List[float]
 @dataclass(frozen=True, slots=True)
 class MCTSConfig:
     num_actors: int
-    num_actions: Tuple[int, ...]
+    max_actions: Tuple[int, ...]
+    rng: random.Random
     max_depth: int = 6
+    c_puct: float = 1.4
     child_index_steps: Tuple[int, ...] = field(init=False)
     legal_actions: Tuple[Tuple[int, ...], ...] = field(init=False)
 
     def __post_init__(self) -> None:
         if self.num_actors <= 0:
             raise ValueError("num_actors must be > 0")
-        if len(self.num_actions) != self.num_actors:
+        if len(self.max_actions) != self.num_actors:
             raise ValueError("num_actions must have exactly num_actors entries")
-        if any(action_count <= 0 for action_count in self.num_actions):
+        if any(action_count <= 0 for action_count in self.max_actions):
             raise ValueError("all entries in num_actions must be > 0")
         if self.max_depth <= 0:
             raise ValueError("max_depth must be > 0")
 
-        num_actions = tuple(self.num_actions)
-        object.__setattr__(self, "num_actions", num_actions)
+        max_actions = tuple(self.max_actions)
+        object.__setattr__(self, "max_actions", max_actions)
 
         child_index_steps = []
         radix = 1
-        for action_count in num_actions:
+        for action_count in max_actions:
             child_index_steps.append(radix)
             radix *= action_count
         object.__setattr__(
@@ -44,7 +46,7 @@ class MCTSConfig:
         object.__setattr__(
             self,
             "legal_actions",
-            tuple(tuple(range(action_count)) for action_count in num_actions),
+            tuple(tuple(range(action_count)) for action_count in max_actions),
         )
 
 
@@ -100,10 +102,10 @@ class _Node:
         self.parent = parent
         self.actions = actions
         # First index is agent, second is action
-        self.visits_by_action: List[List[int]] = [[0] * action_count for action_count in config.num_actions]
-        self.value_by_action: List[List[float]] = [[0.0] * action_count for action_count in config.num_actions]
-        self._children: Dict[int, "_Node"] = {}
         self.visits = 0
+        self.visits_by_action: List[List[int]] = [[0] * action_count for action_count in config.max_actions]
+        self.value_by_action: List[List[float]] = [[0.0] * action_count for action_count in config.max_actions]
+        self._children: Dict[int, "_Node"] = {}
         self._fully_expanded = False
 
     def _get_child_index(self, actions: List[int]):
@@ -128,6 +130,54 @@ class _Node:
             self._fully_expanded = all(count > 0 for action_count in self.visits_by_action for count in action_count)
         
         return self._fully_expanded
+    
+
+    def select_child(self) -> _Node:
+        sqrt_visits = math.sqrt(self.visits + 1)
+
+        selected_actions = [0] * self.config.num_actors
+        legal_actions = self.state.legal_actions()
+
+        for actor, actions in enumerate(legal_actions):
+            best_score = -math.inf
+            best_action = 0
+            for action in actions:
+                action_visits = self.visits_by_action[actor][action]
+                q = self.value_by_action[actor][action] / action_visits if action_visits > 0 else 0.0
+                u = self.config.c_puct * (sqrt_visits / (1 + action_visits))
+                score = q + u
+                if score > best_score:
+                    best_score = score
+                    best_action = action
+            selected_actions[actor] = best_action
+
+        return self.get_child(selected_actions)
+    
+
+    def expand(self) -> _Node:
+        selected_actions = []
+        legal_actions = self.state.legal_actions()
+        for actor, actions in enumerate(legal_actions):
+            unvisited_actions = [
+                action for action in actions
+                if self.visits_by_action[actor][action] == 0
+            ]
+            if len(unvisited_actions) > 0:
+                selected_actions.append(self.config.rng.choice(unvisited_actions))
+            else:
+                selected_actions.append(self.config.rng.choice(range(self.config.max_actions[actor])))
+
+        return self.get_child(selected_actions)
+    
+
+    def backpropagate(self, values: ValueMap) -> None:
+        self.visits += 1
+        parent = self.parent
+        if parent is not None:
+            for actor, action in enumerate(self.actions):
+                parent.visits_by_action[actor][action] += 1
+                parent.value_by_action[actor][action] += values[actor]
+            parent.backpropagate(values)
 
 
 
@@ -142,25 +192,18 @@ class MCTS:
     __slots__ = (
         "rollout_fn",
         "heuristic_fn",
-        "c_puct",
-        "config",
-        "rng",
+        "config"
     )
 
     def __init__(
         self,
         config: MCTSConfig,
         rollout_fn: RolloutFn,
-        heuristic_fn: Optional[HeuristicFn] = None,
-        *,
-        c_puct: float = 1.4,
-        rng: Optional[random.Random] = None,
+        heuristic_fn: Optional[HeuristicFn] = None
     ) -> None:
         self.rollout_fn = rollout_fn
         self.heuristic_fn = heuristic_fn
-        self.c_puct = c_puct
         self.config = config
-        self.rng = rng or random.Random()
 
     def search(
         self,
@@ -168,6 +211,60 @@ class MCTS:
         *,
         num_simulations: int,
     ) -> Tuple[Action, GameStateProtocol]:
+        
+        root, stats = self._search_internal(root_state, num_simulations=num_simulations)
+        
+        best_actions = self._most_visited_actions(root)
+        child_node = root.get_child(best_actions)
+        trajectory = self._get_expected_trajectory(child_node)
+        state_trajectory = [node.state for node in trajectory]
+        return best_actions, child_node.state, state_trajectory, stats
+        
+    def _search_iteration(self, root: _Node, stats: Dict | None):
+        node = root
+        depth = 0
+
+        fully_expanded = node.fully_expanded()
+        is_terminal = node.state.is_terminal()
+        
+        #stats["check_expanded"] += 1
+        #stats["cached_check_expanded"] += 1 if node._fully_expanded else 0
+        #stats["check_terminal"] += 1
+        #print(f"Selecting node for simulation {i}")
+        while fully_expanded and not is_terminal and depth < self.config.max_depth:
+            node = node.select_child()
+            fully_expanded = node.fully_expanded()
+            is_terminal = node.state.is_terminal()
+            depth += 1
+            #stats["select_child"] += 1
+            #stats["check_expanded"] += 1
+            #stats["cached_check_expanded"] += 1 if node._fully_expanded else 0
+            #stats["check_terminal"] += 1
+
+        if is_terminal:
+            #print(f"Reached terminal state for simulation {i}")
+            values = node.state.terminal_values()
+        else:
+            #print(f"Rolling out simulation {i}")
+            if not fully_expanded and depth < self.config.max_depth:
+                #stats["select_child_expand"] += 1
+                node = node.expand()
+            #stats["rollout"] += 1
+            #stats["rollout_total_depth"] += node.config.max_depth - node.state.depth
+            values = self.rollout_fn(node.state)
+
+        #print(f"Backpropagating simulation {i}")
+        #stats["backpropogate"] += 1
+        #stats["backpropogate_total_depth"] += node.state.depth
+        node.backpropagate(values)
+        #print(f"Completed simulation {i}")
+
+    def _search_internal(
+        self,
+        root_state: GameStateProtocol,
+        *,
+        num_simulations: int,
+    ) -> Tuple[_Node, Dict | None]:
         #print("Starting search")
         root = _Node(root_state, self.config, None, None)
 
@@ -183,101 +280,44 @@ class MCTS:
         #    "backpropogate": 0,
         #    "backpropogate_total_depth": 0
         #}
-
+        chosen_actions = []
         for i in range(num_simulations):
-            #print(f"Starting simulation {i}")
-            node = root
-            depth = 0
+            self._search_iteration(root, stats)
 
-            fully_expanded = node.fully_expanded()
-            is_terminal = node.state.is_terminal()
-            
-            #stats["check_expanded"] += 1
-            #stats["cached_check_expanded"] += 1 if node._fully_expanded else 0
-            #stats["check_terminal"] += 1
-            #print(f"Selecting node for simulation {i}")
-            while fully_expanded and not is_terminal and depth < self.config.max_depth:
-                node = self._select_child(node)
-                fully_expanded = node.fully_expanded()
-                is_terminal = node.state.is_terminal()
-                depth += 1
-                #stats["select_child"] += 1
-                #stats["check_expanded"] += 1
-                #stats["cached_check_expanded"] += 1 if node._fully_expanded else 0
-                #stats["check_terminal"] += 1
+            if i % 100 == 0:
+                best_actions = self._most_visited_actions(root)
+                chosen_actions.append(best_actions[0])
 
-            if is_terminal:
-                #print(f"Reached terminal state for simulation {i}")
-                values = node.state.terminal_values()
-            else:
-                #print(f"Rolling out simulation {i}")
-                if not fully_expanded and depth < self.config.max_depth:
-                    #stats["select_child_expand"] += 1
-                    node = self._select_child_to_expand(node)
-                #stats["rollout"] += 1
-                #stats["rollout_total_depth"] += node.config.max_depth - node.state.depth
-                values = self.rollout_fn(node.state)
+        #print(chosen_actions)
 
-            #print(f"Backpropagating simulation {i}")
-            #stats["backpropogate"] += 1
-            #stats["backpropogate_total_depth"] += node.state.depth
-            self._backpropagate(node, values)
-            #print(f"Completed simulation {i}")
+        return root, stats
+    
+    def _get_expected_trajectory(self, node: _Node):
+        nodes = [node]
+        while not node.state.is_terminal() and node.visits > 0:
+            best_actions = self._most_visited_actions(node)
+            node = node.get_child(best_actions)
+            nodes.append(node)
+        return nodes
 
-        best_actions = self._best_actions(root)
-        child_node = root.get_child(best_actions)
-        return best_actions, child_node.state, stats
 
-    def _best_actions(self, root: _Node) -> Action:
+    def _highest_scoring_actions(self, root: _Node) -> Action:
         actions = []
         for actor in range(self.config.num_actors):
-            action, visits = max(enumerate(root.visits_by_action[actor]), key=lambda t: t[1])
+            values = root.value_by_action[actor]
+            visits = root.visits_by_action[actor]
+            action = max(range(len(values)), key=lambda i: values[i] / visits[i] if visits[i] > 0 else 0)
             actions.append(action)
 
         return actions
 
-    def _select_child(self, node: _Node) -> _Node:
-        sqrt_visits = math.sqrt(node.visits + 1)
 
-        actions = [0] * self.config.num_actors
-
+    def _most_visited_actions(self, root: _Node) -> Action:
+        actions = []
         for actor in range(self.config.num_actors):
-            best_score = -math.inf
-            best_action = 0
-            for action in range(self.config.num_actions[actor]):
-                action_visits = node.visits_by_action[actor][action]
-                q = node.value_by_action[actor][action] / action_visits if action_visits > 0 else 0.0
-                u = self.c_puct * (sqrt_visits / (1 + action_visits))
-                score = q + u
-                if score > best_score:
-                    best_score = score
-                    best_action = action
-            actions[actor] = best_action
+            max_visits = max(root.visits_by_action[actor])
+            action = random.choice([action for action, visits in enumerate(root.visits_by_action[actor]) if visits >= max_visits])
+            actions.append(action)
 
-        return node.get_child(actions)
+        return actions
     
-    def _select_child_to_expand(self, node: _Node) -> _Node:
-        selected_actions = []
-        for actor in range(self.config.num_actors):
-            unvisited_actions = [
-                action
-                for action in range(self.config.num_actions[actor])
-                if node.visits_by_action[actor][action] == 0
-            ]
-            if any(unvisited_actions):
-                selected_actions.append(self.rng.choice(unvisited_actions))
-            else:
-                selected_actions.append(self.rng.choice(range(self.config.num_actions[actor])))
-
-        return node.get_child(selected_actions)
-
-    def _backpropagate(self, node: _Node, values: ValueMap) -> None:
-        while node is not None:
-            node.visits += 1
-            parent = node.parent
-            if parent is not None:
-                for actor, action in enumerate(node.actions):
-                    parent.visits_by_action[actor][action] += 1
-                    parent.value_by_action[actor][action] += values[actor]
-                    
-            node = parent

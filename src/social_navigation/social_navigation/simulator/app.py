@@ -1,3 +1,3 @@
-from .ui import Simulator
+from .ui import SimulatorUI
 
-__all__ = ["Simulator"]
+__all__ = ["SimulatorUI"]
