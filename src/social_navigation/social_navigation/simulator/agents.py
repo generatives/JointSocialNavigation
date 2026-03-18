@@ -150,10 +150,9 @@ class RobotAI:
         robot.command_v = float(np.clip(cruise_speed, 0.0, robot.max_speed))
 
 class MCTSRobotAI:
-    def __init__(self, scenario: ScenarioMap, crowd: Crowd, replan_period: float = 0.50):
+    def __init__(self, scenario: ScenarioMap, crowd: Crowd):
         self.scenario = scenario
         self.crowd = crowd
-        self.replan_period = replan_period
         self.replan_timer = 0.0
         self.manual_goal: tuple[int, int] | None = None
         self.command_v: float | None = None
@@ -177,11 +176,18 @@ class MCTSRobotAI:
     def _plan_intermediate_goal(self, robot: Robot) -> np.ndarray:
         num_humans = 5
         tree_depth = 6
-        dt = 0.5
         assumed_human_speed = 1.7
+        robot_speed = MAX_ROBOT_SPEED * 0.9
+        robot_omega = MAX_ROBOT_OMEGA * 0.9
 
         if self.manual_goal is None:
             return robot.position.copy()
+        
+        robot_goal = self.scenario.cell_to_world(self.manual_goal)
+        final_goal_dist = np.linalg.norm(robot.position - robot_goal)
+        time_to_goal = final_goal_dist / robot_speed
+        dt = time_to_goal / tree_depth
+        dt = min(0.5, max(0.2, dt))
 
         active_idxs = np.flatnonzero(self.crowd.active)
         if active_idxs.size == 0:
@@ -206,8 +212,7 @@ class MCTSRobotAI:
 
         positions = np.vstack((robot.position[None, :], human_positions))
         velocities = np.concatenate((robot_velocity, human_velocities))
-        robot_goal = self.scenario.cell_to_world(self.manual_goal)[None, :]
-        goal_positions = np.vstack((robot_goal, human_goals))
+        goal_positions = np.vstack((robot_goal[None, :], human_goals))
         starting_distances = np.linalg.norm(goal_positions - positions, axis=1)
 
         num_agents = positions.shape[0]
@@ -219,11 +224,11 @@ class MCTSRobotAI:
             max_depth=tree_depth)
         state_config = MCTSGameStateConfig(
             mcts_config=mcts_config,
-            robot_speed=MAX_ROBOT_SPEED * 0.9,
+            robot_speed=robot_speed,
             dt=dt,
             robot_radius=robot.radius,
             human_radius=np.mean(self.crowd.radius),
-            robot_angular_velocity=MAX_ROBOT_OMEGA * 0.9,
+            robot_angular_velocity=robot_omega,
             uncomfortable_distance=1.5,
             starting_distances=starting_distances,
             map=self.scenario,
@@ -252,7 +257,7 @@ class MCTSRobotAI:
 
         linear_velocity, angular_velocity = root_state.get_command_velocities(actions[0])
 
-        return linear_velocity, angular_velocity
+        return linear_velocity, angular_velocity, dt
 
     def update(self, robot: Robot, dt: float) -> None:
         self.replan_timer -= dt
@@ -265,24 +270,22 @@ class MCTSRobotAI:
 
         goal = self.manual_goal
         robot_cell = self.scenario.world_to_cell(robot.position)
+
+        if goal == robot_cell:
+            self.clear_manual_goal()
+            return
+
         free_robot_cell = self.scenario.nearest_free(robot_cell)
         if free_robot_cell is None:
             robot.command_v = 0.0
             robot.command_w = 0.0
             return
-
-        final_goal_world = self.scenario.cell_to_world(goal)
-        final_goal_dist = np.linalg.norm(robot.position - final_goal_world)
-        if final_goal_dist < (MAX_ROBOT_SPEED * 0.5):
-            robot.command_v = 0.0
-            robot.command_w = 0.0
-            return
         
         if self.replan_timer <= 0.0:
-            self.replan_timer = self.replan_period
-            linear_velocity, angular_velocity = self._plan_intermediate_goal(robot)
+            linear_velocity, angular_velocity, plan_length = self._plan_intermediate_goal(robot)
             self.command_v = linear_velocity
             self.command_w = angular_velocity
+            self.replan_timer = plan_length
 
         robot.command_v = self.command_v
         robot.command_w = self.command_w

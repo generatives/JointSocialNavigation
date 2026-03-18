@@ -211,6 +211,7 @@ RUN echo "export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:/opt/ros/humble/share/tur
 RUN echo "export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${WORKSPACE}/install/robot_utils/share/robot_utils/models" >> /home/ros/.bashrc
 RUN echo "export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${WORKSPACE}/install/hunavis/share/hunavis/models" >> /home/ros/.bashrc
 RUN echo "export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${WORKSPACE}/src/hunav_gazebo_wrapper/media" >> /home/ros/.bashrc
+RUN echo "export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${WORKSPACE}/src/social_simulator/models" >> /home/ros/.bashrc
 RUN echo "export TURTLEBOT3_MODEL=waffle" >> /home/ros/.bashrc
 RUN echo "export GAZEBO_RESOURCE_PATH=/usr/share/gazebo-11:" >> /home/ros/.bashrc
 
