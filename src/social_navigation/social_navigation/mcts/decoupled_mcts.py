@@ -143,6 +143,15 @@ class _Node:
             best_action = 0
             action_data = []
             heuristic_values = []
+
+            # Best debug
+            best_h = 0
+            best_normalized = 0
+            best_h_min = 0
+            best_h_max = 0
+            best_q = 0
+            best_u = 0
+            best_actor = 0
             
             for action in actions:
                 action_visits = self.visits_by_action[actor][action]
@@ -162,15 +171,25 @@ class _Node:
             for action, q, u, h in action_data:
                 if h_max > h_min:
                     normalized_score = (h - h_min) / (h_max - h_min)
+                    # normalized_score = 1.0
                 else:
                     normalized_score = 1.0
-
+                # print(f"Normalized score: {normalized_score} - min h: {h_min} - max h: {h_max} - h: {h}")
                 score = q + u * normalized_score
 
                 if score > best_score:
                     best_score = score
                     best_action = action
+                    best_h = h
+                    best_normalized = normalized_score
+                    best_h_min = h_min
+                    best_h_max = h_max
+                    best_q = q
+                    best_u = u
+                    best_actor = actor
             selected_actions[actor] = best_action
+            # if actor == 0:
+                # print(f"Best actor: {best_actor} Best score: {best_score:.4f} Best u {best_u:.4f} best q {best_q:.4f} best action {best_action} Normalized score: {best_normalized:.4f} - min h: {best_h_min:.4f} - max h: {best_h_max:.4f} - h: {best_h:.4f}")
 
         return self.get_child(selected_actions)
     
@@ -234,7 +253,18 @@ class MCTS:
     ) -> Tuple[Action, GameStateProtocol]:
         
         root, stats = self._search_internal(root_state, num_simulations=num_simulations)
-        
+
+        print("=== Root action diagnostics ===")
+        rp = root_state.positions[0]
+        print(f"  robot=({rp[0]:.2f}, {rp[1]:.2f})")
+        for i, hp in enumerate(root_state.positions[1:]):
+            print(f"  human{i}=({hp[0]:.2f}, {hp[1]:.2f})")
+        for a in range(self.config.max_actions[0]):
+            v = root.visits_by_action[0][a]
+            q = root.value_by_action[0][a] / v if v > 0 else float('nan')
+            h = root_state.heuristic_robot_goal_score_for_action(a)
+            print(f"  action={a}  visits={v:4d}  q={q:.3f}  h={h:.3f}")
+
         best_actions = self._most_visited_actions(root)
         child_node = root.get_child(best_actions)
         trajectory = self._get_expected_trajectory(child_node)

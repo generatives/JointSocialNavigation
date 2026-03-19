@@ -265,7 +265,7 @@ class MCTSGameState(GameStateProtocol):
         robot_orientation = math.atan2(robot_velocity[1], robot_velocity[0])
         robot_speed, robot_angular_velocity = self.get_command_velocities(robot_action)
 
-        x_new, y_new, _ = self._propagate_unicycle(
+        x_new, y_new, new_orientation = self._propagate_unicycle(
             robot_position[0],
             robot_position[1],
             robot_orientation,
@@ -288,14 +288,47 @@ class MCTSGameState(GameStateProtocol):
         new_pos = np.array([x_new, y_new], dtype=np.float32)
         if self.positions.shape[0] > 1:
             human_positions = self.positions[1:, :]
-            dists_to_humans = np.linalg.norm(human_positions - new_pos, axis=1)
-            min_human_dist = float(np.min(dists_to_humans))
-            social_score = 1.0 - math.exp(-min_human_dist / self.config.uncomfortable_distance)
+            combined = self.config.human_radius + self.config.robot_radius
+
+            total_force = 0.0
+            min_human_dist = float("inf")
+
+            diffs = human_positions - new_pos
+            dists = np.linalg.norm(diffs, axis=1)
+
+            valid = dists >= 1e-4
+            if np.any(valid):
+                valid_dists = dists[valid]
+
+                min_human_dist = np.min(valid_dists)
+
+                penetration = combined - valid_dists
+                mags = 10.0 * np.exp((combined - valid_dists) / 0.6)
+                mags += np.maximum(penetration, 0.0) * 30.0
+
+                total_force = np.sum(mags)
+            else:
+                min_human_dist = float("inf")
+                total_force = 0.0
+
+            force_social_score = np.exp(-total_force / 10.0)
+            clearance_score = 1.0 - np.exp(-min_human_dist / self.config.uncomfortable_distance)
+
+            # social_score = 0.9 * force_social_score + 0.1 * clearance_score
+            social_score = force_social_score
         else:
             social_score = 1.0
 
-        return 7.0 * goal_score + 3.0 * social_score
-    
+        goal_vec = self.agent_goal_positions[0] - robot_position
+        goal_dist = math.hypot(float(goal_vec[0]), float(goal_vec[1]))
+        if goal_dist > 1e-6:
+            new_heading = np.array([math.cos(new_orientation), math.sin(new_orientation)], dtype=np.float32)
+            alignment = float(np.dot(new_heading, goal_vec / goal_dist))  # range [-1, +1]
+        else:
+            alignment = 1.0
+
+        return 3.0 * goal_score + 1.0 * alignment + 7.0 * social_score
+
 
 def navigation_rollout(state: MCTSGameState):
     while not state.is_terminal():
