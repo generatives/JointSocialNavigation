@@ -134,7 +134,7 @@ class ScenarioMap:
         grid[:, :] = WALL
         grid[8:12, :] = FREE
 
-        human_starts = [(17, 8), (17, 11)]
+        human_starts = [(11, 8), (11, 11)]
         human_ends = [(0, 8)]
         robot_start = (0, 8)
         robot_goals = []

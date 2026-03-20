@@ -163,7 +163,7 @@ class SimulatorUI:
         if self.simulation.control_mode == "MCTS_ROBOT_AI":
             if self.simulation.mcts_robot_ai.planned_robot_trajectory:
                 trajectory_length = len(self.simulation.mcts_robot_ai.planned_robot_trajectory)
-                for i in range(trajectory_length - 1):
+                for i in range(0, trajectory_length - 1, 2):
                     start = self.simulation.mcts_robot_ai.planned_robot_trajectory[i]
                     end = self.simulation.mcts_robot_ai.planned_robot_trajectory[i+1]
                     commands.append(Line(start=self._to_px(start), end=self._to_px(end), color=(201, 85, 73), width=3))
@@ -171,7 +171,7 @@ class SimulatorUI:
             if self.simulation.mcts_robot_ai.planned_human_trajectories:
                 for trajectory in self.simulation.mcts_robot_ai.planned_human_trajectories.values():
                     trajectory_length = len(self.simulation.mcts_robot_ai.planned_robot_trajectory)
-                    for i in range(trajectory_length - 1):
+                    for i in range(0, trajectory_length - 1, 2):
                         start = trajectory[i]
                         end = trajectory[i+1]
                         commands.append(Line(start=self._to_px(start), end=self._to_px(end), color=(58, 138, 246), width=3))
