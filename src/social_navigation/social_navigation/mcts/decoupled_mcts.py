@@ -217,7 +217,8 @@ class MCTS:
         best_actions = self._most_visited_actions(root)
         child_node = root.get_child(best_actions)
         trajectory = self._get_expected_trajectory(child_node)
-        state_trajectory = [node.state for node in trajectory]
+        #trajectory = self._get_topk_trajectories(child_node, 5)
+        state_trajectory = [state for node in trajectory for state in [node.parent.state, node.state]]
         return best_actions, child_node.state, state_trajectory, stats
         
     def _search_iteration(self, root: _Node, stats: Dict | None):
@@ -293,11 +294,31 @@ class MCTS:
         return root, stats
     
     def _get_expected_trajectory(self, node: _Node):
-        nodes = [node]
+        nodes = []
         while not node.state.is_terminal() and node.visits > 0:
             best_actions = self._most_visited_actions(node)
             node = node.get_child(best_actions)
             nodes.append(node)
+        return nodes
+    
+
+    def _get_topk_trajectories(self, node: _Node, k: int = 5):
+        nodes = []
+        nodes_to_search = [node]
+        remaining_trajectories = k
+
+        while remaining_trajectories > 0 and len(nodes_to_search) > 0:
+            nodes_to_search.sort(key=lambda n: n.visits, reverse=False)
+            node = nodes_to_search.pop()
+            if node.state.is_terminal() or node.visits == 0:
+                remaining_trajectories -= 1
+                while node.parent is not None:
+                    nodes.append(node)
+                    node = node.parent
+            else:
+                for child in node._children.values():
+                    nodes_to_search.append(child)
+
         return nodes
 
 

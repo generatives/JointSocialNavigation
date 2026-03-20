@@ -176,7 +176,6 @@ class MCTSRobotAI:
     def _plan_intermediate_goal(self, robot: Robot) -> np.ndarray:
         num_humans = 5
         tree_depth = 6
-        assumed_human_speed = 1.7
         robot_speed = MAX_ROBOT_SPEED * 0.9
         robot_omega = MAX_ROBOT_OMEGA * 0.9
 
@@ -199,12 +198,12 @@ class MCTSRobotAI:
 
         human_positions = self.crowd.positions[closest_humans]
         human_velocities = self.crowd.velocities[closest_humans]
-        horizon = assumed_human_speed * dt * tree_depth
+        horizon = np.linalg.norm(human_velocities, axis=1) * dt * tree_depth
         ema_vels = self.crowd.velocity_ema[closest_humans]
         ema_speeds = np.linalg.norm(ema_vels, axis=1, keepdims=True)
         moving = ema_speeds > 0.1
         ema_dirs = np.where(moving, ema_vels / np.where(moving, ema_speeds, 1.0), 0.0)
-        human_goals = human_positions + ema_dirs * horizon
+        human_goals = human_positions + ema_dirs * horizon[:, np.newaxis]
 
         robot_velocity = np.array([
             [np.cos(robot.theta), np.sin(robot.theta)]
@@ -216,7 +215,7 @@ class MCTSRobotAI:
         starting_distances = np.linalg.norm(goal_positions - positions, axis=1)
 
         num_agents = positions.shape[0]
-        num_actions = [6] + [1] * (num_agents - 1)
+        num_actions = [4] + [1] * (num_agents - 1)
         mcts_config = MCTSConfig(
             num_actors=num_agents, 
             max_actions=num_actions, 
@@ -244,7 +243,7 @@ class MCTSRobotAI:
             depth=0
         )
 
-        actions, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=25000)
+        actions, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=50000)
         self.planned_robot_trajectory = [state.positions[0].copy() for state in state_trajectory]
         self.planned_human_trajectories = {
             human_index: [state.positions[actor_index+1].copy() for state in state_trajectory]
