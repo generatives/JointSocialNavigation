@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 import time
 
 import numpy as np
@@ -23,7 +24,7 @@ from .simulation import NavigationSimulation
 
 
 class SimulatorUI:
-    def __init__(self) -> None:
+    def __init__(self, recording_path: str | Path | None = None, recording_fps: int = 30) -> None:
         config = load_config()
         self.simulation = NavigationSimulation(config=config)
         self.cell_px = config.cell_px
@@ -33,6 +34,8 @@ class SimulatorUI:
             title="Crowded Navigation Simulator",
             font_name="consolas",
             font_size=18,
+            recording_path=recording_path,
+            recording_fps=recording_fps,
         )
         self.input_snapshot = InputSnapshot()
 
@@ -176,7 +179,6 @@ class SimulatorUI:
             if self.simulation.mcts_robot_ai.planned_human_goal_estimates:
                 for goal_pos in self.simulation.mcts_robot_ai.planned_human_goal_estimates.values():
                     self._draw_circle(commands, goal_pos, 0.18, (255, 165, 0))
-
 
         commands.append(Present())
         self.runtime.submit_frame(commands)

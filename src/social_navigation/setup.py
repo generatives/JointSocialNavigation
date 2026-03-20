@@ -14,7 +14,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join("share", package_name, "config"), glob("config/*")),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'imageio', 'imageio-ffmpeg'],
     zip_safe=True,
     maintainer='root',
     maintainer_email='declaneaston@gmail.com',
