@@ -87,30 +87,36 @@ class MCTSGameState(GameStateProtocol):
 
     def apply_actions(self, actions: List[int]) -> "GameStateProtocol":
 
-        human_velocities = self._calculate_human_velocities()
+        substeps = 5
+        substep_dt = self.config.dt / substeps
+        positions = self.positions.copy()
+        velocities = self.velocities.copy()
 
-        robot_position = self.positions[0, :]
-        robot_velocity = self.velocities[0, :]
-        robot_orientation = np.arctan2(robot_velocity[1], robot_velocity[0])
-        robot_speed, robot_angular_velocity = self.get_command_velocities(actions[0])
+        for i in range(substeps):
+            human_velocities = self._calculate_human_velocities(positions, velocities)
 
-        x_new, y_new, robot_new_orientation = self._propagate_unicycle(robot_position[0], robot_position[1],
-                                                                       robot_orientation,
-                                                                       robot_speed, robot_angular_velocity,
-                                                                       self.config.dt)
+            robot_position = positions[0, :]
+            robot_velocity = velocities[0, :]
+            robot_orientation = np.arctan2(robot_velocity[1], robot_velocity[0])
+            robot_speed, robot_angular_velocity = self.get_command_velocities(actions[0])
 
-        new_velocities = np.empty_like(self.velocities)
-        new_velocities[0, 0] = robot_speed * np.cos(robot_new_orientation)
-        new_velocities[0, 1] = robot_speed * np.sin(robot_new_orientation)
-        new_velocities[1:] = human_velocities
+            x_new, y_new, robot_new_orientation = self._propagate_unicycle(robot_position[0], robot_position[1],
+                                                                        robot_orientation,
+                                                                        robot_speed, robot_angular_velocity,
+                                                                        substep_dt)
 
-        new_positions = self.positions + self.config.dt * new_velocities
-        new_positions[0, 0] = x_new
-        new_positions[0, 1] = y_new
+            velocities = np.empty_like(velocities)
+            velocities[0, 0] = robot_speed * np.cos(robot_new_orientation)
+            velocities[0, 1] = robot_speed * np.sin(robot_new_orientation)
+            velocities[1:] = human_velocities
+
+            positions = positions + substep_dt * velocities
+            positions[0, 0] = x_new
+            positions[0, 1] = y_new
 
         return MCTSGameState(
-            new_positions,
-            new_velocities,
+            positions,
+            velocities,
             self.agent_goal_positions,
             self._accumulated_value,
             self.config,
@@ -149,6 +155,19 @@ class MCTSGameState(GameStateProtocol):
         score = total_distance / total_possible_distance
         return score
     
+    def _sfm_force_score(self):
+        num_humans = self.positions.shape[0] - 1
+        if num_humans > 0:
+            human_positions = self.positions[1:, :]
+            _, robot_force_generated = self._social_forces(human_positions)
+
+            approx_max_force_per_human = 30.0
+            normalizing_factor = (approx_max_force_per_human * num_humans * self.config.mcts_config.max_depth) + 1e-6
+
+            return -robot_force_generated / normalizing_factor
+        else:
+            return 0.0
+    
     def _goal_distance(self) -> np.ndarray:
         distances = np.linalg.norm(self.agent_goal_positions - self.positions, axis=1)
 
@@ -161,7 +180,8 @@ class MCTSGameState(GameStateProtocol):
     
     def _accumulate_value(self, value_accumulator) -> np.ndarray:
         value_accumulator = value_accumulator.copy()
-        value_accumulator[0] += self._uncomfortable_distance()
+        value_accumulator[0] += 1.0 * self._sfm_force_score()
+        #value_accumulator[0] += self._uncomfortable_distance()
         if self.is_terminal():
             value_accumulator += 0.3 * self._goal_distance()
         
@@ -173,12 +193,12 @@ class MCTSGameState(GameStateProtocol):
     def terminal_values(self) -> ValueMap:
         return self._accumulated_value.tolist()
     
-    def _calculate_human_velocities(self):
+    def _calculate_human_velocities(self, positions, velocities):
         human_preferred_speed = 1.7
         dt = self.config.dt
 
-        human_positions = self.positions[1:, :]
-        human_velocities = self.velocities[1:, :].copy()
+        human_positions = positions[1:, :]
+        human_velocities = velocities[1:, :].copy()
         human_goal_positions = self.agent_goal_positions[1:, :]
         num_humans = human_positions.shape[0]
 

@@ -68,6 +68,19 @@ class ScenarioMap:
         robot_start = (0, 8)
         robot_goals = []
         return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
+    
+    @staticmethod
+    def build_hallway_tradeoff() -> "ScenarioMap":
+        height, width = 18, 18
+        grid = np.zeros((height, width), dtype=np.int8)
+        grid[:, :] = WALL
+        grid[8:12, :] = FREE
+
+        human_starts = [(17, 8), (17, 11)]
+        human_ends = [(0, 8)]
+        robot_start = (0, 8)
+        robot_goals = []
+        return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
 
     @property
     def shape(self) -> tuple[int, int]:

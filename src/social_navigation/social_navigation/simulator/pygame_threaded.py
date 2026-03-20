@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 import queue
 import threading
 import time
 from typing import TypeAlias
 
+import imageio.v2 as imageio
 import pygame
 
 
@@ -84,14 +86,37 @@ class Present:
 DrawCommand: TypeAlias = Fill | Rect | Circle | Line | Lines | Text | Present
 
 
+class VideoRecorder:
+    def __init__(self, output_path: str | Path, fps: int) -> None:
+        self.output_path = Path(output_path)
+        self.fps = fps
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self._writer = imageio.get_writer(self.output_path, fps=fps)
+
+    def write_surface(self, screen: pygame.Surface) -> None:
+        frame = pygame.surfarray.array3d(screen)
+        self._writer.append_data(frame.transpose(1, 0, 2))
+
+    def close(self) -> None:
+        self._writer.close()
+
+
 class ThreadedPygameRuntime:
     def __init__(
-        self, window_size: tuple[int, int], title: str, font_name: str, font_size: int
+        self,
+        window_size: tuple[int, int],
+        title: str,
+        font_name: str,
+        font_size: int,
+        recording_path: str | Path | None = None,
+        recording_fps: int = 30,
     ) -> None:
         self.window_size = window_size
         self.title = title
         self.font_name = font_name
         self.font_size = font_size
+        self.recording_path = Path(recording_path) if recording_path is not None else None
+        self.recording_fps = recording_fps
 
         self._input_lock = threading.Lock()
         self._quit_requested = False
@@ -110,14 +135,14 @@ class ThreadedPygameRuntime:
 
     def start(self) -> None:
         if self._thread is not None:
-            raise RuntimeError("ThreadedPygameRuntime has already been started")
+            raise RuntimeError('ThreadedPygameRuntime has already been started')
         self._thread = threading.Thread(target=self._run_ui_loop, daemon=True)
         self._thread.start()
         self._started_event.wait(timeout=5.0)
         if not self._started_event.is_set():
-            raise RuntimeError("Timed out starting PyGame UI thread")
+            raise RuntimeError('Timed out starting PyGame UI thread')
         if self._init_error is not None:
-            raise RuntimeError("Failed to initialize PyGame UI thread") from self._init_error
+            raise RuntimeError('Failed to initialize PyGame UI thread') from self._init_error
 
     def stop(self) -> None:
         if self._thread is None:
@@ -125,7 +150,7 @@ class ThreadedPygameRuntime:
         self._stop_event.set()
         self._thread.join(timeout=5.0)
         if self._thread.is_alive():
-            raise RuntimeError("PyGame UI thread did not stop cleanly")
+            raise RuntimeError('PyGame UI thread did not stop cleanly')
         self._thread = None
 
     def poll_input(self) -> InputSnapshot:
@@ -162,11 +187,14 @@ class ThreadedPygameRuntime:
         screen: pygame.Surface | None = None
         font: pygame.font.Font | None = None
         last_frame: list[DrawCommand] | None = None
+        recorder: VideoRecorder | None = None
         try:
             pygame.init()
             screen = pygame.display.set_mode(self.window_size)
             pygame.display.set_caption(self.title)
             font = pygame.font.SysFont(self.font_name, self.font_size)
+            if self.recording_path is not None:
+                recorder = VideoRecorder(self.recording_path, self.recording_fps)
             self._started_event.set()
             while not self._stop_event.is_set():
                 self._pump_input()
@@ -174,12 +202,14 @@ class ThreadedPygameRuntime:
                 if frame is not None:
                     last_frame = frame
                 if last_frame is not None and screen is not None and font is not None:
-                    self._execute_frame(last_frame, screen, font)
+                    self._execute_frame(last_frame, screen, font, recorder)
                 time.sleep(0.005)
         except Exception as exc:  # pragma: no cover - startup/runtime safety path
             self._init_error = exc
             self._started_event.set()
         finally:
+            if recorder is not None:
+                recorder.close()
             pygame.quit()
 
     def _pump_input(self) -> None:
@@ -217,7 +247,11 @@ class ThreadedPygameRuntime:
                 return latest
 
     def _execute_frame(
-        self, commands: list[DrawCommand], screen: pygame.Surface, font: pygame.font.Font
+        self,
+        commands: list[DrawCommand],
+        screen: pygame.Surface,
+        font: pygame.font.Font,
+        recorder: VideoRecorder | None,
     ) -> None:
         needs_flip = False
         for cmd in commands:
@@ -239,3 +273,5 @@ class ThreadedPygameRuntime:
                 needs_flip = True
         if needs_flip:
             pygame.display.flip()
+            if recorder is not None:
+                recorder.write_surface(screen)
