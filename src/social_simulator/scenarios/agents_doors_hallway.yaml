@@ -44,7 +44,7 @@ hunav_loader:
         h: 1.250000
     worker2:
       id: 2
-      skin: 0
+      skin: 1
       group_id: -1
       max_vel: 1.5
       radius: 0.4
@@ -84,7 +84,7 @@ hunav_loader:
         h: 1.250000
     worker3:
       id: 3
-      skin: 0
+      skin: 2
       group_id: -1
       max_vel: 1.5
       radius: 0.4
@@ -129,7 +129,7 @@ hunav_loader:
         h: 1.250000
     worker4:
       id: 4
-      skin: 0
+      skin: 3
       group_id: -1
       max_vel: 1.5
       radius: 0.4
