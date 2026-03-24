@@ -1,13 +1,11 @@
 import math
-import random
 from dataclasses import dataclass, field
-from typing import Iterable, List
+from typing import List, Tuple, Optional
 import numpy as np
 
 from social_navigation.mcts.decoupled_mcts import Action, GameStateProtocol, MCTSConfig, ValueMap
 from social_navigation.simulator.constants import WALL
 from social_navigation.simulator.scenario_map import ScenarioMap
-
 
 @dataclass(frozen=True, slots=True)
 class MCTSGameStateConfig:
@@ -20,39 +18,18 @@ class MCTSGameStateConfig:
     robot_radius: float
     human_radius: float
     starting_distances: float
-    robot_angular_velocity_actions: np.ndarray = field(init=False)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "robot_angular_velocity_actions",
-            np.array([-self.robot_angular_velocity, 0.0, self.robot_angular_velocity], dtype=np.float32),
-        )
 
 
 class MCTSGameState(GameStateProtocol):
-
     __slots__ = (
-        "config",
-        "positions",
-        "velocities",
-        "agent_goal_positions",
-        "depth",
-        "_accumulated_value",
-        "_collision_mask",
-        "_collision_occured"
+        "config", "positions", "velocities", "agent_goal_positions",
+        "depth", "_accumulated_value", "_collision_mask", "_collision_occured"
     )
 
-    def __init__(self,
-                 positions: np.ndarray,
-                 velocities: np.ndarray,
-                 agent_goal_positions: np.ndarray,
-                 accumulated_value: np.ndarray | None,
-                 config: MCTSGameStateConfig,
-                 depth: int):
-        super().__init__()
+    def __init__(self, positions: np.ndarray, velocities: np.ndarray,
+                 agent_goal_positions: np.ndarray, accumulated_value: np.ndarray | None,
+                 config: MCTSGameStateConfig, depth: int):
         self.config = config
-
         self.positions = positions
         self.velocities = velocities
         self.agent_goal_positions = agent_goal_positions
@@ -64,10 +41,65 @@ class MCTSGameState(GameStateProtocol):
             accumulated_value = np.zeros((positions.shape[0],))
         self._accumulated_value = self._accumulate_value(accumulated_value)
 
+    def sample_actions(self, rng: np.random.Generator, existing_actions: Optional[List[Action]] = None) -> List[Action]:
+        """Samples continuous actions based on proximity to other expansions for tree diversity."""
+        actions = []
+        robot_pos = self.positions[0]
 
-    def legal_actions(self) -> Iterable[Iterable[Action]]:
-        return self.config.mcts_config.legal_actions
+
+        # Placeholder rn, do not modify the distributions. 
+
+        # Expand the values from other nodes to search for diverse directions
+
     
+        v_mean, v_std =  0.5 * self.config.robot_speed, 0.5
+        omega_mean, omega_std = 0.0, self.config.robot_angular_velocity * 0.5
+
+        #Potential way: Depth of the tree, and closest expansions. 
+
+
+        best_v, best_omega = 0.0, 0.0
+
+        if not existing_actions:
+            best_v = float(np.clip(rng.normal(v_mean, v_std), 0.0, self.config.robot_speed))
+            best_omega = float(np.clip(rng.normal(omega_mean, omega_std), -self.config.robot_angular_velocity, self.config.robot_angular_velocity))
+        else:
+            max_min_dist = -1.0
+            num_candidates = 5 # Number of samples to draw from the distribution
+            existing_arr = np.array(existing_actions) # Shape: (N, 2)
+            
+            # We must normalize the axes because v and omega have different maximum scales
+            v_scale = self.config.robot_speed if self.config.robot_speed > 0 else 1.0
+            omega_scale = self.config.robot_angular_velocity if self.config.robot_angular_velocity > 0 else 1.0
+            
+            for _ in range(num_candidates):
+                v_cand = float(np.clip(rng.normal(v_mean, v_std), 0.0, self.config.robot_speed))
+                omega_cand = float(np.clip(rng.normal(omega_mean, omega_std), -self.config.robot_angular_velocity, self.config.robot_angular_velocity))
+                
+                # Calculate scaled distance to all existing actions in the tree
+                v_diffs = (existing_arr[:, 0] - v_cand) / v_scale
+                omega_diffs = (existing_arr[:, 1] - omega_cand) / omega_scale
+                dists = np.sqrt(v_diffs**2 + omega_diffs**2)
+                
+                min_tree_dist = float(np.min(dists))
+                
+                # Keep the sample that is furthest from already-explored actions
+                if min_tree_dist > max_min_dist:
+                    max_min_dist = min_tree_dist
+                    best_v, best_omega = v_cand, omega_cand
+
+        actions.append((best_v, best_omega)) # Robot action
+
+        # Dummy continuous actions for humans (SFM will override)
+        for _ in range(1, self.config.mcts_config.num_actors):
+            actions.append((0.0, 0.0))
+
+        return actions
+    
+
+
+
+
     def _propagate_unicycle(self, x, y, theta, v, omega, dt, eps=1e-9):
         if abs(omega) < eps:
             x_new = x + v * dt * math.cos(theta)
@@ -79,22 +111,15 @@ class MCTSGameState(GameStateProtocol):
             y_new = y - (v / omega) * (math.cos(theta_new) - math.cos(theta))
 
         return x_new, y_new, theta_new
-    
-    def get_command_velocities(self, robot_action: int) -> List[float]:
-        if robot_action < 3:
-            robot_speed = self.config.robot_speed
-            robot_angular_velocity = self.config.robot_angular_velocity_actions[robot_action]
-        else:
-            robot_speed = 0
-            robot_angular_velocity = 0
-        return robot_speed, robot_angular_velocity
 
-    def apply_actions(self, actions: List[int]) -> "GameStateProtocol":
-
+    def apply_actions(self, actions: List[Action]) -> "GameStateProtocol":
         substeps = 2
         substep_dt = self.config.dt / substeps
         positions = self.positions.copy()
         velocities = self.velocities.copy()
+
+        # The robot's continuous action is directly used
+        robot_v, robot_omega = actions[0]
 
         for i in range(substeps):
             human_velocities = self._calculate_human_velocities(positions, velocities)
@@ -102,16 +127,15 @@ class MCTSGameState(GameStateProtocol):
             robot_position = positions[0, :]
             robot_velocity = velocities[0, :]
             robot_orientation = np.arctan2(robot_velocity[1], robot_velocity[0])
-            robot_speed, robot_angular_velocity = self.get_command_velocities(actions[0])
 
-            x_new, y_new, robot_new_orientation = self._propagate_unicycle(robot_position[0], robot_position[1],
-                                                                        robot_orientation,
-                                                                        robot_speed, robot_angular_velocity,
-                                                                        substep_dt)
+            x_new, y_new, robot_new_orientation = self._propagate_unicycle(
+                robot_position[0], robot_position[1], robot_orientation,
+                robot_v, robot_omega, substep_dt
+            )
 
             velocities = np.empty_like(velocities)
-            velocities[0, 0] = robot_speed * np.cos(robot_new_orientation)
-            velocities[0, 1] = robot_speed * np.sin(robot_new_orientation)
+            velocities[0, 0] = robot_v * np.cos(robot_new_orientation)
+            velocities[0, 1] = robot_v * np.sin(robot_new_orientation)
             velocities[1:] = human_velocities
 
             positions = positions + substep_dt * velocities
@@ -119,12 +143,8 @@ class MCTSGameState(GameStateProtocol):
             positions[0, 1] = y_new
 
         return MCTSGameState(
-            positions,
-            velocities,
-            self.agent_goal_positions,
-            self._accumulated_value,
-            self.config,
-            self.depth + 1
+            positions, velocities, self.agent_goal_positions,
+            self._accumulated_value, self.config, self.depth + 1
         )
     
     def _get_invalid_state(self) -> bool:
@@ -209,7 +229,7 @@ class MCTSGameState(GameStateProtocol):
 
     def terminal_values(self) -> ValueMap:
         return self._accumulated_value.tolist()
-    
+
     def _calculate_human_velocities(self, positions, velocities):
         human_preferred_speed = 1.35
         dt = self.config.dt
@@ -281,6 +301,10 @@ class MCTSGameState(GameStateProtocol):
             forces[i] += force
             robot_social_force_generated += float(np.linalg.norm(force))
 
+
+
+
+
         for i in range(n):
             cell = self.config.map.world_to_cell(human_positions[i])
             for oy in range(-2, 3):
@@ -303,8 +327,8 @@ class MCTSGameState(GameStateProtocol):
     
 
 def navigation_rollout(state: MCTSGameState):
+    rng = state.config.mcts_config.rng
     while not state.is_terminal():
-        legal_actions = state.legal_actions()
-        random_actions = [actions[random.randint(0, len(actions) - 1)] for actions in legal_actions]
-        state = state.apply_actions(random_actions)
+        actions = state.sample_actions(rng)
+        state = state.apply_actions(actions)
     return state.terminal_values()
