@@ -29,8 +29,8 @@ class NavigationSimulation:
         self.scenario = scenario or ScenarioMap.build_hallway_crossing()
         robot_start = self.scenario.cell_to_world(self.scenario.robot_start)
         self.robot = Robot(position=robot_start.copy(), theta=0.0)
-        self.robot_ai = RobotAI(self.scenario)
         self.crowd = Crowd(max_humans=max_humans, scenario=self.scenario)
+        self.robot_ai = RobotAI(self.scenario, self.crowd)
         self.mcts_robot_ai = MCTSRobotAI(self.scenario, self.crowd)
         self.control_modes = CONTROL_MODES
         self.control_mode_idx = self.control_modes.index(control_mode)

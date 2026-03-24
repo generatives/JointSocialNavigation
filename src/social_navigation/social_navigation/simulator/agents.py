@@ -76,27 +76,47 @@ class CrowdStepMetrics:
 
 
 class RobotAI:
-    def __init__(self, scenario: ScenarioMap, replan_period: float = 0.75):
+    def __init__(self, scenario: ScenarioMap, crowd: Crowd, replan_period: float = 0.75):
         self.scenario = scenario
+        self.crowd = crowd
         self.replan_period = replan_period
         self.replan_timer = 0.0
         self.manual_goal: tuple[int, int] | None = None
+        self.planned_human_trajectories: Dict[int, List[np.ndarray]] | None = None
+        self.planned_human_goal_estimates: Dict[int, np.ndarray] | None = None
+        self.path_timestep = 0.0
+        self.wait_timer = 0.0
+        self.waiting_path_ptr: int | None = None
+        self.social_force_weight = 0.1
 
     def set_manual_goal(self, cell: tuple[int, int]) -> None:
         self.manual_goal = cell
         self.replan_timer = 0.0
+        self.planned_human_trajectories = None
+        self.planned_human_goal_estimates = None
+        self.wait_timer = 0.0
+        self.waiting_path_ptr = None
 
     def clear_manual_goal(self) -> None:
         self.manual_goal = None
         self.replan_timer = 0.0
+        self.planned_human_trajectories = None
+        self.planned_human_goal_estimates = None
+        self.wait_timer = 0.0
+        self.waiting_path_ptr = None
 
     def update(self, robot: Robot, dt: float) -> None:
-        self.replan_timer -= dt
+        sim_dt = dt
+        self.replan_timer -= sim_dt
         if self.manual_goal is None:
             robot.command_v = 0.0
             robot.command_w = 0.0
             robot.path = []
             robot.path_ptr = 0
+            self.planned_human_trajectories = None
+            self.planned_human_goal_estimates = None
+            self.wait_timer = 0.0
+            self.waiting_path_ptr = None
             return
 
         goal = self.manual_goal
@@ -112,16 +132,106 @@ class RobotAI:
         if final_goal_dist < 0.6:
             robot.command_v = 0.0
             robot.command_w = 0.0
+            self.planned_human_trajectories = None
+            self.planned_human_goal_estimates = None
+            self.wait_timer = 0.0
+            self.waiting_path_ptr = None
             return
 
         if self.replan_timer <= 0.0 or not robot.path:
             self.replan_timer = self.replan_period
-            new_path = a_star(self.scenario.grid, free_robot_cell, goal)
+            robot_speed = MAX_ROBOT_SPEED * 0.9
+            num_humans = 5
+            depth = 6
+            robot_goal = self.scenario.cell_to_world(self.manual_goal)
+            final_goal_dist = np.linalg.norm(robot.position - robot_goal)
+            time_to_goal = final_goal_dist / robot_speed
+            planner_dt = time_to_goal / depth
+            planner_dt = min(0.5, max(0.2, planner_dt))
+            self.path_timestep = planner_dt
+            self.wait_timer = 0.0
+            self.waiting_path_ptr = None
+
+            active_idxs = np.flatnonzero(self.crowd.active)
+            human_goals = None
+            human_predictions = None
+            self.planned_human_trajectories = None
+            self.planned_human_goal_estimates = None
+            if active_idxs.size > 0:
+                distances = np.linalg.norm(self.crowd.positions[active_idxs] - robot.position, axis=1)
+                sorted_active = active_idxs[np.argsort(distances)]
+                closest_humans = sorted_active[:num_humans]
+
+                human_positions = self.crowd.positions[closest_humans]
+                human_velocities = self.crowd.velocities[closest_humans]
+                horizon = np.linalg.norm(human_velocities, axis=1) * planner_dt * depth
+                ema_vels = self.crowd.velocity_ema[closest_humans]
+                ema_speeds = np.linalg.norm(ema_vels, axis=1, keepdims=True)
+                moving = ema_speeds > 0.1
+                ema_dirs = np.where(moving, ema_vels / np.where(moving, ema_speeds, 1.0), 0.0)
+                human_goals = human_positions + ema_dirs * horizon[:, np.newaxis]
+
+                step_vectors = (human_goals - human_positions) / depth
+                # shape (num_humans, depth + 1, 2)
+                human_predictions = (
+                    human_positions[:, None, :]
+                    + np.arange(0, depth + 1, dtype=np.float32)[None, :, None] * step_vectors[:, None, :]
+                )
+                self.planned_human_trajectories = {
+                    human_index: [point.copy() for point in human_predictions[actor_index]]
+                    for actor_index, human_index in enumerate(closest_humans)
+                }
+                self.planned_human_goal_estimates = {
+                    human_index: human_goals[actor_index].copy()
+                    for actor_index, human_index in enumerate(closest_humans)
+                }
+
+            max_human_radius = float(np.max(self.crowd.radius)) if self.crowd.radius.size > 0 else 0.28
+            min_clearance = robot.radius + max_human_radius + 0.25
+            new_path = a_star(
+                self.scenario.grid,
+                free_robot_cell,
+                goal,
+                human_predictions,
+                min_clearance=min_clearance,
+                social_force_weight=self.social_force_weight,
+                robot_radius=robot.radius,
+                human_radius=max_human_radius,
+            )
             if new_path:
                 robot.path = new_path
                 robot.path_ptr = 1 if len(new_path) > 1 else 0
 
         if not robot.path or robot.path_ptr >= len(robot.path):
+            robot.command_v = 0.0
+            robot.command_w = 0.0
+            self.wait_timer = 0.0
+            self.waiting_path_ptr = None
+            return
+
+        while robot.path_ptr < len(robot.path):
+            prev_cell = robot.path[robot.path_ptr - 1] if robot.path_ptr > 0 else None
+            current_cell = robot.path[robot.path_ptr]
+            if prev_cell != current_cell:
+                self.wait_timer = 0.0
+                self.waiting_path_ptr = None
+                break
+
+            if self.waiting_path_ptr != robot.path_ptr:
+                self.waiting_path_ptr = robot.path_ptr
+                self.wait_timer = self.path_timestep
+
+            self.wait_timer -= sim_dt
+            robot.command_v = 0.0
+            robot.command_w = 0.0
+            if self.wait_timer > 0.0:
+                return
+
+            robot.path_ptr += 1
+            self.wait_timer = 0.0
+            self.waiting_path_ptr = None
+
+        if robot.path_ptr >= len(robot.path):
             robot.command_v = 0.0
             robot.command_w = 0.0
             return

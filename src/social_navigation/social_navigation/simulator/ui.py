@@ -25,7 +25,7 @@ from .simulation import NavigationSimulation
 class SimulatorUI:
     def __init__(self, recording_path: str | Path | None = None, recording_fps: int = 30) -> None:
         self.simulation = NavigationSimulation(control_mode="ROBOT_AI")
-        self.cell_px = 24
+        self.cell_px = 24*3
         self.runtime = ThreadedPygameRuntime(
             window_size=(self.simulation.scenario.width * self.cell_px, self.simulation.scenario.height * self.cell_px),
             title="Crowded Navigation Simulator",
@@ -148,28 +148,46 @@ class SimulatorUI:
             )
         )
 
+        if self.simulation.control_mode == "ROBOT_AI":
+            self._draw_human_prediction_overlay(
+                commands,
+                self.simulation.robot_ai.planned_human_trajectories,
+                self.simulation.robot_ai.planned_human_goal_estimates,
+            )
+
         if self.simulation.control_mode == "MCTS_ROBOT_AI":
             if self.simulation.mcts_robot_ai.planned_robot_trajectory:
                 trajectory_length = len(self.simulation.mcts_robot_ai.planned_robot_trajectory)
-                for i in range(0, trajectory_length - 1, 2):
+                for i in range(trajectory_length - 1):
                     start = self.simulation.mcts_robot_ai.planned_robot_trajectory[i]
                     end = self.simulation.mcts_robot_ai.planned_robot_trajectory[i+1]
                     commands.append(Line(start=self._to_px(start), end=self._to_px(end), color=(201, 85, 73), width=3))
 
-            if self.simulation.mcts_robot_ai.planned_human_trajectories:
-                for trajectory in self.simulation.mcts_robot_ai.planned_human_trajectories.values():
-                    trajectory_length = len(self.simulation.mcts_robot_ai.planned_robot_trajectory)
-                    for i in range(0, trajectory_length - 1, 2):
-                        start = trajectory[i]
-                        end = trajectory[i+1]
-                        commands.append(Line(start=self._to_px(start), end=self._to_px(end), color=(58, 138, 246), width=3))
-
-            if self.simulation.mcts_robot_ai.planned_human_goal_estimates:
-                for goal_pos in self.simulation.mcts_robot_ai.planned_human_goal_estimates.values():
-                    self._draw_circle(commands, goal_pos, 0.18, (255, 165, 0))
+            self._draw_human_prediction_overlay(
+                commands,
+                self.simulation.mcts_robot_ai.planned_human_trajectories,
+                self.simulation.mcts_robot_ai.planned_human_goal_estimates,
+            )
 
         commands.append(Present())
         self.runtime.submit_frame(commands)
+
+    def _draw_human_prediction_overlay(
+        self,
+        commands: list[DrawCommand],
+        trajectories: dict[int, list[np.ndarray]] | None,
+        goal_estimates: dict[int, np.ndarray] | None,
+    ) -> None:
+        if trajectories:
+            for trajectory in trajectories.values():
+                for i in range(len(trajectory) - 1):
+                    start = trajectory[i]
+                    end = trajectory[i + 1]
+                    commands.append(Line(start=self._to_px(start), end=self._to_px(end), color=(58, 138, 246), width=3))
+
+        if goal_estimates:
+            for goal_pos in goal_estimates.values():
+                self._draw_circle(commands, goal_pos, 0.18, (255, 165, 0))
 
     def _draw_markers(
         self,
