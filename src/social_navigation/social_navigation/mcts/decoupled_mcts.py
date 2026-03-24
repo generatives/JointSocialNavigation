@@ -59,7 +59,7 @@ class GameStateProtocol:
       - terminal_values() -> ValueMap
     """
 
-    def legal_actions(self) -> Iterable[Iterable[Action]]:  # pragma: no cover - interface
+    def legal_actions(self) -> Iterable[Iterable[Tuple[Action, float]]]:  # pragma: no cover - interface
         raise NotImplementedError
 
     def apply_actions(self, action: Action) -> "GameStateProtocol":  # pragma: no cover - interface
@@ -141,10 +141,10 @@ class _Node:
         for actor, actions in enumerate(legal_actions):
             best_score = -math.inf
             best_action = 0
-            for action in actions:
+            for action, probability in actions:
                 action_visits = self.visits_by_action[actor][action]
                 q = self.value_by_action[actor][action] / action_visits if action_visits > 0 else 0.0
-                u = self.config.c_puct * (sqrt_visits / (1 + action_visits))
+                u = self.config.c_puct * probability * (sqrt_visits / (1 + action_visits))
                 score = q + u
                 if score > best_score:
                     best_score = score
@@ -159,7 +159,7 @@ class _Node:
         legal_actions = self.state.legal_actions()
         for actor, actions in enumerate(legal_actions):
             unvisited_actions = [
-                action for action in actions
+                action for action, _ in actions
                 if self.visits_by_action[actor][action] == 0
             ]
             if len(unvisited_actions) > 0:

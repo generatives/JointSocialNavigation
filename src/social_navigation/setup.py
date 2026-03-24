@@ -11,7 +11,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
     ],
-    install_requires=['setuptools', 'imageio', 'imageio-ffmpeg'],
+    install_requires=['setuptools', 'numpy', 'pygame', 'imageio', 'imageio-ffmpeg'],
     zip_safe=True,
     maintainer='root',
     maintainer_email='declaneaston@gmail.com',
@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'navigator = social_navigation.navigator:main',
+            'mcts_action_explorer = social_navigation.mcts_action_explorer:main',
         ],
     },
 )

@@ -26,7 +26,7 @@ class NavigationSimulation:
         max_humans: int = 50,
         scenario: ScenarioMap | None = None,
     ) -> None:
-        self.scenario = scenario or ScenarioMap.build_hallway_crossing()
+        self.scenario = scenario or ScenarioMap.build_hallway_tradeoff()
         robot_start = self.scenario.cell_to_world(self.scenario.robot_start)
         self.robot = Robot(position=robot_start.copy(), theta=0.0)
         self.robot_ai = RobotAI(self.scenario)

@@ -228,7 +228,7 @@ class MCTSRobotAI:
             robot_radius=robot.radius,
             human_radius=np.mean(self.crowd.radius),
             robot_angular_velocity=robot_omega,
-            uncomfortable_distance=1.5,
+            uncomfortable_distance=1.75,
             starting_distances=starting_distances,
             map=self.scenario,
         )
@@ -243,7 +243,7 @@ class MCTSRobotAI:
             depth=0
         )
 
-        actions, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=50000)
+        actions, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=10000)
         self.planned_robot_trajectory = [state.positions[0].copy() for state in state_trajectory]
         self.planned_human_trajectories = {
             human_index: [state.positions[actor_index+1].copy() for state in state_trajectory]

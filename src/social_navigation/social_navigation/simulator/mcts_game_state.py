@@ -20,6 +20,8 @@ class MCTSGameStateConfig:
     robot_radius: float
     human_radius: float
     starting_distances: float
+    action_progress_weight: float = 0.3
+    action_heading_weight: float = 1.0
     robot_angular_velocity_actions: np.ndarray = field(init=False)
 
     def __post_init__(self) -> None:
@@ -64,9 +66,73 @@ class MCTSGameState(GameStateProtocol):
             accumulated_value = np.zeros((positions.shape[0],))
         self._accumulated_value = self._accumulate_value(accumulated_value)
 
+        self._actions_with_probabilities = self._calculate_actions()
+
+    def _calculate_actions(self):
+        goal_vector = self.agent_goal_positions[0, :] - self.positions[0, :]
+        goal_norm = np.linalg.norm(goal_vector)
+        goal_direction = goal_vector / goal_norm if goal_norm > 1e-9 else np.zeros_like(goal_vector)
+        goal_heading = math.atan2(goal_vector[1], goal_vector[0]) if goal_norm > 1e-9 else 0.0
+
+        action_scores = []
+        robot_actions = self.config.mcts_config.legal_actions[0]
+        robot_position = self.positions[0, :]
+        robot_velocity = self.velocities[0, :]
+        robot_orientation = np.arctan2(robot_velocity[1], robot_velocity[0])
+
+        for robot_action in robot_actions:
+            robot_speed, robot_angular_velocity = self.get_command_velocities(robot_action)
+
+            x_new, y_new, robot_new_orientation = self._propagate_unicycle(
+                robot_position[0],
+                robot_position[1],
+                robot_orientation,
+                robot_speed,
+                robot_angular_velocity,
+                self.config.dt,
+            )
+
+            action_vector = np.array([x_new, y_new]) - self.positions[0, :]
+            action_norm = np.linalg.norm(action_vector)
+            if action_norm > 1e-9 and goal_norm > 1e-9:
+                progress_alignment = float(np.dot(goal_direction, action_vector / action_norm))
+            elif action_norm <= 1e-9 and goal_norm > 1e-9:
+                progress_alignment = 0.0
+            else:
+                progress_alignment = 1.0
+
+            heading_error = math.atan2(
+                math.sin(goal_heading - robot_new_orientation),
+                math.cos(goal_heading - robot_new_orientation),
+            )
+            heading_alignment = math.cos(heading_error) if goal_norm > 1e-9 else 1.0
+
+            combined_alignment = (
+                self.config.action_progress_weight * progress_alignment
+                + self.config.action_heading_weight * heading_alignment
+            )
+            action_scores.append(float(np.exp(combined_alignment - 1.0)))
+
+        sum_score = sum(action_scores)
+        if sum_score <= 1e-9:
+            action_probabilties = [1.0 / len(action_scores)] * len(action_scores)
+        else:
+            action_probabilties = [score / sum_score for score in action_scores]
+
+        legal_actions_with_probabilities = []
+        for agent_idx, actions in enumerate(self.config.mcts_config.legal_actions):
+            actions_with_probabilities = []
+            for action_idx, action in enumerate(actions):
+                #probability = action_probabilties[action_idx] if agent_idx == 0 else 1.0
+                probability = 1.0
+                actions_with_probabilities.append((action, probability))
+            legal_actions_with_probabilities.append(actions_with_probabilities)
+
+        return legal_actions_with_probabilities
+
 
     def legal_actions(self) -> Iterable[Iterable[Action]]:
-        return self.config.mcts_config.legal_actions
+        return self._actions_with_probabilities
     
     def _propagate_unicycle(self, x, y, theta, v, omega, dt, eps=1e-9):
         if abs(omega) < eps:
@@ -305,6 +371,6 @@ class MCTSGameState(GameStateProtocol):
 def navigation_rollout(state: MCTSGameState):
     while not state.is_terminal():
         legal_actions = state.legal_actions()
-        random_actions = [actions[random.randint(0, len(actions) - 1)] for actions in legal_actions]
+        random_actions = [actions[random.randint(0, len(actions) - 1)][0] for actions in legal_actions]
         state = state.apply_actions(random_actions)
     return state.terminal_values()
