@@ -21,9 +21,8 @@ def _parse_goals(goals_raw: str) -> list[tuple[int, int]]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Headless navigation test harness")
-    parser.add_argument("--goals", required=True, help="Goal script, e.g. \"17,5;12,4;2,3\"")
-    parser.add_argument("--mode", default="ROBOT_AI", choices=["ROBOT_AI", "MCTS_ROBOT_AI"])
-    parser.add_argument("--runs", type=int, default=8)
+    parser.add_argument("--mode", default="MCTS_ROBOT_AI", choices=["ROBOT_AI", "MCTS_ROBOT_AI"])
+    parser.add_argument("--runs", type=int, default=16)
     parser.add_argument("--base-seed", type=int, default=7)
     parser.add_argument("--processes", type=int, default=None)
     parser.add_argument("--dt", type=float, default=1.0 / 30.0)
@@ -32,9 +31,7 @@ def main() -> None:
     parser.add_argument("--max-humans", type=int, default=220)
     args = parser.parse_args()
 
-    goals = _parse_goals(args.goals)
     result = run_parallel(
-        goals=goals,
         control_mode=args.mode,
         num_runs=args.runs,
         base_seed=args.base_seed,

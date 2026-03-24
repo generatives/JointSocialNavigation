@@ -9,7 +9,7 @@ import numpy as np
 from social_navigation.mcts.decoupled_mcts import MCTSConfig
 from social_navigation.simulator.constants import WALL
 from social_navigation.simulator.mcts_game_state import MCTSGameState, MCTSGameStateConfig
-from social_navigation.simulator.pygame_threaded import Circle, Fill, InputSnapshot, Line, Present, Rect, Text, ThreadedPygameRuntime
+from social_navigation.social_navigation.rendering.pygame_threaded import Circle, Fill, InputSnapshot, Line, Present, Rect, Text, ThreadedPygameRuntime
 from social_navigation.simulator.scenario_map import ScenarioMap
 
 

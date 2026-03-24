@@ -79,7 +79,7 @@ class ScenarioMap:
         human_starts = [(11, 8), (11, 11)]
         human_ends = [(0, 8)]
         robot_start = (0, 8)
-        robot_goals = []
+        robot_goals = [(16, 10), (0, 8)]
         return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
 
     @property

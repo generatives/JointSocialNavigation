@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 import queue
 import threading
@@ -8,6 +9,8 @@ import time
 from typing import TypeAlias
 
 import imageio.v2 as imageio
+
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 import pygame
 
 
@@ -108,6 +111,7 @@ class ThreadedPygameRuntime:
         title: str,
         font_name: str,
         font_size: int,
+        headless: bool = False,
         recording_path: str | Path | None = None,
         recording_fps: int = 30,
     ) -> None:
@@ -115,6 +119,7 @@ class ThreadedPygameRuntime:
         self.title = title
         self.font_name = font_name
         self.font_size = font_size
+        self.headless = headless
         self.recording_path = Path(recording_path) if recording_path is not None else None
         self.recording_fps = recording_fps
 
@@ -134,6 +139,7 @@ class ThreadedPygameRuntime:
         self._init_error: Exception | None = None
 
     def start(self) -> None:
+        print("Starting")
         if self._thread is not None:
             raise RuntimeError('ThreadedPygameRuntime has already been started')
         self._thread = threading.Thread(target=self._run_ui_loop, daemon=True)
@@ -189,6 +195,8 @@ class ThreadedPygameRuntime:
         last_frame: list[DrawCommand] | None = None
         recorder: VideoRecorder | None = None
         try:
+            if self.headless:
+                os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
             pygame.init()
             screen = pygame.display.set_mode(self.window_size)
             pygame.display.set_caption(self.title)
@@ -203,6 +211,9 @@ class ThreadedPygameRuntime:
                     last_frame = frame
                 if last_frame is not None and screen is not None and font is not None:
                     self._execute_frame(last_frame, screen, font, recorder)
+                    if self.headless:
+                        # Don't repeat the last frame when in headless
+                        last_frame = None
                 time.sleep(0.005)
         except Exception as exc:  # pragma: no cover - startup/runtime safety path
             self._init_error = exc
