@@ -14,13 +14,225 @@
           <izz>0.0</izz>
         </inertia>
       </inertial>
-      <collision name="collision">
-        <pose>0 0 0 0 0 0</pose>
+
+      <collision name='collision_0'>
+        <pose>-0.150000 -9.075000 0.750000 0 0 0</pose>
         <geometry>
-          <mesh>
-            <uri>model://doors_hallway/meshes/doors_hallway.stl</uri>
-          </mesh>
+          <box>
+            <size>10.600000 0.250000 1.500000</size>
+          </box>
         </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_1'>
+        <pose>-5.325000 -6.075000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 5.750000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_2'>
+        <pose>5.025000 -6.075000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 5.750000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_3'>
+        <pose>-3.400000 -3.075000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>4.100000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_4'>
+        <pose>3.125000 -3.075000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>4.050000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_5'>
+        <pose>-1.475000 -2.800000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 0.300000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_6'>
+        <pose>1.225000 -2.800000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 0.300000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_7'>
+        <pose>-5.675000 -2.525000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>8.650000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_8'>
+        <pose>5.550000 -2.525000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>8.900000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_9'>
+        <pose>-8.000000 2.475000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>4.000000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_10'>
+        <pose>0.550000 2.475000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>8.600000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_11'>
+        <pose>8.675000 2.475000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>2.650000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_12'>
+        <pose>-6.125000 2.650000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 0.100000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_13'>
+        <pose>-3.625000 2.675000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 0.150000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_14'>
+        <pose>4.725000 2.675000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 0.150000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_15'>
+        <pose>7.475000 2.675000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 0.150000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_16'>
+        <pose>-8.000000 2.825000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>4.000000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_17'>
+        <pose>0.550000 2.875000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>8.600000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_18'>
+        <pose>8.675000 2.875000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>2.650000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_19'>
+        <pose>-9.875000 6.275000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 6.650000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_20'>
+        <pose>9.875000 6.300000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 6.600000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_21'>
+        <pose>0.000000 9.725000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>20.000000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
       </collision>
       <visual name="visual">
         <pose>0 0 0 0 0 0</pose>

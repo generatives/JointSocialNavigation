@@ -103,27 +103,86 @@
             <izz>0</izz>
           </inertia>
         </inertial>
-        <collision name='collision'>
-          <pose>0 0 0 0 0 0</pose>
-          <geometry>
-            <mesh>
-              <uri>model://intersection_hallway/meshes/intersection_hallway.stl</uri>
-            </mesh>
-          </geometry>
-          <max_contacts>10</max_contacts>
-          <surface>
-            <contact>
-              <ode/>
-            </contact>
-            <bounce/>
-            <friction>
-              <torsional>
-                <ode/>
-              </torsional>
-              <ode/>
-            </friction>
-          </surface>
-        </collision>
+
+      <collision name='collision_0'>
+        <pose>-2.475000 -6.325000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 7.350000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_1'>
+        <pose>2.525000 -6.325000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 7.350000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_2'>
+        <pose>-6.175000 -2.525000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>7.650000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_3'>
+        <pose>6.200000 -2.525000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>7.600000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_4'>
+        <pose>-6.175000 2.475000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>7.650000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_5'>
+        <pose>6.200000 2.475000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>7.600000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_6'>
+        <pose>-2.475000 6.300000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 7.400000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_7'>
+        <pose>2.525000 6.300000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 7.400000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
         <visual name='visual'>
           <pose>0 0 0 0 0 0</pose>
           <geometry>
