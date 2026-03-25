@@ -6,7 +6,7 @@ import time
 
 import numpy as np
 
-from social_navigation.social_navigation.rendering.simulation_renderer import draw_simulation
+from rendering.simulation_renderer import draw_simulation
 
 from .constants import WALL
 from ..rendering.pygame_threaded import (

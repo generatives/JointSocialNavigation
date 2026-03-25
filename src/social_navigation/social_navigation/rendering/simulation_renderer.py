@@ -1,13 +1,14 @@
 import math
+from typing import List
 
 import numpy as np
 
-from rendering.pygame_threaded import Circle, DrawCommand, Fill, Line, Lines, Present, Rect, Text
-from simulator.constants import WALL
-from simulator.simulation import NavigationSimulation
+from social_navigation.rendering.pygame_threaded import Circle, DrawCommand, Fill, Line, Lines, Present, Rect, Text
+from social_navigation.simulator.constants import WALL
+from social_navigation.simulator.simulation import NavigationSimulation
 
 
-def draw_simulation(simulation: NavigationSimulation, cell_px: int) -> None:
+def draw_simulation(simulation: NavigationSimulation, cell_px: int) -> List[DrawCommand]:
     scenario = simulation.scenario
     crowd = simulation.crowd
     robot = simulation.robot
