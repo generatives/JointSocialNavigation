@@ -15,6 +15,9 @@ class ScenarioMap:
     human_ends: list[tuple[int, int]]
     robot_start: tuple[int, int]
     robot_goals: list[tuple[int, int]]
+    resolution: float = 1.0
+    origin_x: float = 0.0
+    origin_y: float = 0.0
 
     @staticmethod
     def build_empty() -> "ScenarioMap":
@@ -82,6 +85,38 @@ class ScenarioMap:
         robot_goals = [(16, 10), (0, 8)]
         return ScenarioMap(grid, human_starts, human_ends, robot_start, robot_goals)
 
+    @staticmethod
+    def build_from_occupancy_data(
+        width: int,
+        height: int,
+        resolution: float,
+        origin_x: float,
+        origin_y: float,
+        data: list[int] | np.ndarray,
+        occupied_threshold: int = 50,
+        treat_unknown_as_wall: bool = True,
+    ) -> "ScenarioMap":
+        occupancy = np.asarray(data, dtype=np.int16).reshape(height, width)
+        blocked = occupancy >= occupied_threshold
+        if treat_unknown_as_wall:
+            blocked |= occupancy < 0
+
+        grid = np.where(blocked, WALL, FREE).astype(np.int8)
+        human_starts: list[tuple[int, int]] = []
+        human_ends: list[tuple[int, int]] = []
+        robot_start = (0, 0)
+        robot_goals: list[tuple[int, int]] = []
+        return ScenarioMap(
+            grid=grid,
+            human_starts=human_starts,
+            human_ends=human_ends,
+            robot_start=robot_start,
+            robot_goals=robot_goals,
+            resolution=float(resolution),
+            origin_x=float(origin_x),
+            origin_y=float(origin_y),
+        )
+
     @property
     def shape(self) -> tuple[int, int]:
         return self.grid.shape
@@ -107,8 +142,8 @@ class ScenarioMap:
         return self.is_free(cell)
 
     def world_to_cell(self, position: np.ndarray) -> tuple[int, int]:
-        x = int(math.floor(float(position[0])))
-        y = int(math.floor(float(position[1])))
+        x = int(math.floor((float(position[0]) - self.origin_x) / self.resolution))
+        y = int(math.floor((float(position[1]) - self.origin_y) / self.resolution))
         x = int(np.clip(x, 0, self.width - 1))
         y = int(np.clip(y, 0, self.height - 1))
         return x, y
@@ -127,4 +162,10 @@ class ScenarioMap:
         return None
 
     def cell_to_world(self, cell: tuple[int, int]) -> np.ndarray:
-        return np.array([float(cell[0]) + 0.5, float(cell[1]) + 0.5], dtype=np.float32)
+        return np.array(
+            [
+                self.origin_x + (float(cell[0]) + 0.5) * self.resolution,
+                self.origin_y + (float(cell[1]) + 0.5) * self.resolution,
+            ],
+            dtype=np.float32,
+        )
