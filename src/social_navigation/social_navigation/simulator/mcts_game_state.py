@@ -207,23 +207,10 @@ class MCTSGameState(GameStateProtocol):
     def is_terminal(self) -> bool:
         _, is_invalid = self._get_invalid_state()
         reached_depth = self.depth >= self.config.mcts_config.max_depth
-        return is_invalid or reached_depth
+        distance_to_goal = np.linalg.norm(self.positions[0] - self.agent_goal_positions[0])
+        reached_goal = distance_to_goal < 1.0
+        return is_invalid or reached_depth or reached_goal
     
-    def _uncomfortable_distance(self) -> np.ndarray:
-        robot_position = self.positions[0, :]
-        other_positions = self.positions[1:, :]
-        distances = np.linalg.norm(other_positions - robot_position, axis=1)
-        uncomfortable_distances = np.clip(distances, 0, self.config.uncomfortable_distance)
-        total_distance = np.sum(uncomfortable_distances)
-
-        # We should scale the distances so that if the robot stays at least 1.5m away
-        # from all actors throughout the plan the total score will be 1.0.
-        # This makes it easier to trade this score against the goal reaching score
-        total_possible_distance = self.config.uncomfortable_distance * \
-            (self.config.mcts_config.num_actors - 1) * \
-            self.config.mcts_config.max_depth
-        score = total_distance / total_possible_distance
-        return score
     
     def _uncomfortable_distance_meter_score(self) -> np.ndarray:
         robot_position = self.positions[0, :]
@@ -235,6 +222,17 @@ class MCTSGameState(GameStateProtocol):
         total_cost = np.sum(costs)
 
         return -total_cost
+    
+    def _uncomfortable_distance_time_score(self) -> np.ndarray:
+        robot_position = self.positions[0, :]
+        other_positions = self.positions[1:, :]
+        distances = np.linalg.norm(other_positions - robot_position, axis=1)
+        is_uncomfortable = distances < self.config.uncomfortable_distance
+        costs = np.zeros(other_positions.shape[0])
+        costs[is_uncomfortable] = self.config.dt
+        total_cost = np.sum(costs)
+
+        return total_cost
     
     def _sfm_force_score(self):
         num_humans = self.positions.shape[0] - 1
@@ -253,23 +251,30 @@ class MCTSGameState(GameStateProtocol):
         distances = np.linalg.norm(self.agent_goal_positions - self.positions, axis=1)
         distances = -distances
 
-        ## scale by starting distances so that staying at the start is worth -1.0 and
-        ## reaching the destination is worth 0.0
-        #safe_starting = np.where(self.config.starting_distances > 0, self.config.starting_distances, 1.0)
-        #scores = np.where(self.config.starting_distances > 0, -distances / safe_starting, 0.0)
-
         return distances
+    
+    def _time_to_goal(self) -> np.ndarray:
+        distances = np.linalg.norm(self.agent_goal_positions - self.positions, axis=1)
+        time_to_goal = distances / self.config.robot_speed
+
+        return time_to_goal
     
     def _accumulate_value(self, value_accumulator) -> np.ndarray:
         value_accumulator = value_accumulator.copy()
-        #value_accumulator[0] += 0.6 * self._sfm_force_score()
-        #value_accumulator[0] += self._uncomfortable_distance()
-        value_accumulator[0] += 1.0 * self._uncomfortable_distance_meter_score()
+
+        # Punish the robot for spending time near people
+        value_accumulator[0] += -1.0 * self._uncomfortable_distance_time_score()
+
+        # Track the amount of time that has been spent by all agents
+        value_accumulator += -self.config.dt
+
+        # At the terminal node estimate the amount of time required to reach the goal
         if self.is_terminal():
-            value_accumulator += 1.0 * self._goal_distance()
+            value_accumulator += -self._time_to_goal()
         
         invalid_state_mask, _ = self._get_invalid_state()
-        value_accumulator[invalid_state_mask] = -self.config.starting_distances[0]
+        if np.any(invalid_state_mask):
+            value_accumulator[invalid_state_mask] = 2.0 * value_accumulator[invalid_state_mask]
 
         return value_accumulator
 
