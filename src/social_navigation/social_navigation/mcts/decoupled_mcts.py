@@ -145,6 +145,9 @@ class MCTS:
         self, root_state: GameStateProtocol, *, num_simulations: int
     ) -> Tuple[List[Action], GameStateProtocol, List[GameStateProtocol], None]:
         
+        if root_state.is_terminal():
+            return None, None, None, None
+
         root = _Node(root_state, self.config, None, None)
 
         for _ in range(num_simulations):
@@ -153,11 +156,15 @@ class MCTS:
         best_actions = self._most_visited_actions(root)
         #print(f"Best actions at {root_state}, : {best_actions}")
         #print(f"Root of children {root.children}")
+        
         best_child_idx = root.children.index(next(c for c in root.children if c.action_taken_to_reach == best_actions))
+
         child_node = root.children[best_child_idx]
         
-        trajectory = self._get_expected_trajectory(child_node)
-        state_trajectory = [state for node in trajectory for state in [node.parent.state, node.state] if node.parent]
+        state_trajectory = []
+        for child in root.children:
+            trajectory = self._get_expected_trajectory(child)
+            state_trajectory.extend([state for node in trajectory for state in [node.parent.state, node.state] if node.parent])
         
         return best_actions, child_node.state, state_trajectory, None
         

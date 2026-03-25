@@ -161,7 +161,9 @@ class MCTSGameState(GameStateProtocol):
     def is_terminal(self) -> bool:
         _, is_invalid = self._get_invalid_state()
         reached_depth = self.depth >= self.config.mcts_config.max_depth
-        return is_invalid or reached_depth
+        goal_distance = np.linalg.norm(self.agent_goal_positions[0] - self.positions[0])
+        reached_goal = goal_distance < 0.25
+        return is_invalid or reached_depth or reached_goal
     
     def _uncomfortable_distance(self) -> np.ndarray:
         robot_position = self.positions[0, :]
@@ -205,6 +207,11 @@ class MCTSGameState(GameStateProtocol):
     
     def _goal_distance(self) -> np.ndarray:
         distances = np.linalg.norm(self.agent_goal_positions - self.positions, axis=1)
+
+        # small nudge to encourage getting to the final goal earlier
+        if distances[0] < 0.25:
+            distances[0] = -(self.config.mcts_config.max_depth - self.depth) * self.config.dt * self.config.robot_speed
+
         distances = -distances
 
         ## scale by starting distances so that staying at the start is worth -1.0 and
