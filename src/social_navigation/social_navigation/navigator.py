@@ -82,7 +82,6 @@ class Navigator(Node):
             10,
         )
         
-        
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
@@ -277,6 +276,7 @@ class Navigator(Node):
             marker_array.markers.append(path_marker)
 
         self.human_goal_markers_publisher.publish(marker_array)
+
     def map_callback(self, msg: OccupancyGrid):
         self._scenario_map = ScenarioMap.build_from_occupancy_data(
             width=msg.info.width,
