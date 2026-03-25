@@ -24,8 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'navigator = social_navigation.navigator:main',
-            'mcts_action_explorer = social_navigation.mcts_action_explorer:main',
+            'navigator = social_navigation.navigator:main'
         ],
     },
 )

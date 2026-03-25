@@ -210,7 +210,7 @@ class MCTS:
         root_state: GameStateProtocol,
         *,
         num_simulations: int,
-    ) -> Tuple[Action, GameStateProtocol]:
+    ) -> Tuple[Action, GameStateProtocol. List[GameStateProtocol], Dict | None]:
         
         root, stats = self._search_internal(root_state, num_simulations=num_simulations)
         

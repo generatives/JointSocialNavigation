@@ -12,7 +12,7 @@ from geometry_msgs.msg import PointStamped
 from nav2_msgs.action import NavigateToPose
 
 from social_navigation.mcts.decoupled_mcts import MCTS, MCTSConfig
-from social_navigation.social_navigation.simulator.scenario_map import ScenarioMap
+from social_navigation.simulator.scenario_map import ScenarioMap
 from social_navigation.simulator.mcts_game_state import MCTSGameState, MCTSGameStateConfig, navigation_rollout
 
 
@@ -75,35 +75,18 @@ class Navigator(Node):
             return
         
         num_agents = 1
-        num_actions = [6]
+        num_actions = [4]
         tree_depth = 6
 
         mcts_config = MCTSConfig(
             num_actors=num_agents,
             max_actions=num_actions,
-            max_depth=tree_depth
+            max_depth=tree_depth,
+            rng=random.Random()
         )
 
         human_speed = 1.7
         robot_radius = 0.5
-
-        state_config = MCTSGameStateConfig(
-            mcts_config=mcts_config,
-            robot_speed=human_speed,
-            dt=0.5,
-            robot_radius=robot_radius,
-            human_radius=0.5,
-            robot_angular_velocity=np.pi / 4.0,
-            uncomfortable_distance=1.5,
-            map=ScenarioMap.build_empty(),
-        )
-        mcts = MCTS(mcts_config, navigation_rollout, rng=random.Random(random.randint(0, 2**31 - 1)))
-
-        transform = self.tf_buffer.lookup_transform(
-            "map",        # target frame
-            "base_link",  # robot frame
-            rclpy.time.Time()
-        )
 
         positions = np.array([
             [transform.transform.translation.x, transform.transform.translation.y]
@@ -114,6 +97,26 @@ class Navigator(Node):
         goal_positions = np.array([
             [self._goal_point.point.x, self._goal_point.point.y]
         ])
+        starting_distances = np.linalg.norm(goal_positions - positions, axis=1)
+
+        state_config = MCTSGameStateConfig(
+            mcts_config=mcts_config,
+            robot_speed=human_speed,
+            dt=0.5,
+            robot_radius=robot_radius,
+            human_radius=0.5,
+            robot_angular_velocity=np.pi / 4.0,
+            uncomfortable_distance=1.75,
+            map=ScenarioMap.build_empty(),
+            starting_distances=starting_distances,
+        )
+        mcts = MCTS(mcts_config, navigation_rollout)
+
+        transform = self.tf_buffer.lookup_transform(
+            "map",        # target frame
+            "base_link",  # robot frame
+            rclpy.time.Time()
+        )
 
         root_state = MCTSGameState(
             positions=positions,
@@ -124,7 +127,7 @@ class Navigator(Node):
             depth=0
         )
 
-        _, child_state, _ = mcts.search(root_state, num_simulations=500)
+        _, child_state, _, _ = mcts.search(root_state, num_simulations=500)
         intermediate_goal = child_state.positions[0].copy()
 
         self.send_goal(intermediate_goal[0], intermediate_goal[1], 0)

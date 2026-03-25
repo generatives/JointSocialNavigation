@@ -123,8 +123,8 @@ class MCTSGameState(GameStateProtocol):
         for agent_idx, actions in enumerate(self.config.mcts_config.legal_actions):
             actions_with_probabilities = []
             for action_idx, action in enumerate(actions):
-                probability = action_probabilties[action_idx] if agent_idx == 0 else 1.0
-                #probability = 1.0
+                #probability = action_probabilties[action_idx] if agent_idx == 0 else 1.0
+                probability = 1.0
                 actions_with_probabilities.append((action, probability))
             legal_actions_with_probabilities.append(actions_with_probabilities)
 
