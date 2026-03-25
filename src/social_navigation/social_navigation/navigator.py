@@ -6,11 +6,13 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 import tf2_ros
 
 from geometry_msgs.msg import Point, PointStamped
 from nav2_msgs.action import NavigateToPose
 from visualization_msgs.msg import Marker, MarkerArray
+from nav_msgs.msg import OccupancyGrid
 
 from hunav_msgs.msg import Agents, Agent
 from social_navigation.mcts.decoupled_mcts import MCTS, MCTSConfig
@@ -51,6 +53,19 @@ class Navigator(Node):
             '/clicked_point',
             self.clicked_point_callback,
             10)
+
+        map_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.map_subscription = self.create_subscription(
+            OccupancyGrid,
+            '/map',
+            self.map_callback,
+            map_qos,
+        )
         
         self.human_states: np.ndarray | None = None
         self.human_ids: list[int] = []
@@ -72,6 +87,7 @@ class Navigator(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         self._goal_point: PointStamped | None = None
+        self._scenario_map = ScenarioMap.build_empty()
 
         self.get_logger().info('Initialized successfully')
 
@@ -261,6 +277,15 @@ class Navigator(Node):
             marker_array.markers.append(path_marker)
 
         self.human_goal_markers_publisher.publish(marker_array)
+    def map_callback(self, msg: OccupancyGrid):
+        self._scenario_map = ScenarioMap.build_from_occupancy_data(
+            width=msg.info.width,
+            height=msg.info.height,
+            resolution=msg.info.resolution,
+            origin_x=msg.info.origin.position.x,
+            origin_y=msg.info.origin.position.y,
+            data=msg.data,
+        )
 
     def _plan_intermediate_goal(self):
         if self._goal_point is None:
@@ -337,7 +362,7 @@ class Navigator(Node):
             human_radius=0.5,
             robot_angular_velocity=np.pi / 4.0,
             uncomfortable_distance=1.75,
-            map=ScenarioMap.build_empty(),
+            map=self._scenario_map,
             starting_distances=starting_distances,
         )
         mcts = MCTS(mcts_config, navigation_rollout)
