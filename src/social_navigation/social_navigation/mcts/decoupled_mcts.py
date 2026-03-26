@@ -4,16 +4,21 @@ from dataclasses import dataclass, field
 import math
 from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
+import itertools
+
 
 Player = int
 # Action is now a continuous 2D vector: (v, omega)
 Action = Tuple[float, float]
 ValueMap = List[float]
 
+
 @dataclass(frozen=True, slots=True)
 class MCTSConfig:
     num_actors: int
     rng: np.random.Generator 
+    max_actions: Tuple[int, ...]  
+    
     max_depth: int = 6
     c_puct: float = 1.4
     
@@ -21,20 +26,43 @@ class MCTSConfig:
     pw_c: float = 2.0 
     pw_alpha: float = 0.6
 
+    # Fields generated in __post_init__
+    child_index_steps: Tuple[int, ...] = field(init=False)
+    sampled_actions: Tuple[Tuple[Action, ...], ...] = field(init=False)
+
     def __post_init__(self) -> None:
         if self.num_actors <= 0:
             raise ValueError("num_actors must be > 0")
-        if self.max_depth <= 0:
-            raise ValueError("max_depth must be > 0")
+        if len(self.max_actions) != self.num_actors:
+            raise ValueError("max_actions must have length equal to num_actors")
+        if any(action_count <= 0 for action_count in self.max_actions):
+            raise ValueError("all entries in max_actions must be > 0")
+        
+        # Calculate steps for Cartesian indexing
+        child_index_steps = []
+        radix = 1
+        for action_count in self.max_actions:
+            child_index_steps.append(radix)
+            radix *= action_count
+        
+        object.__setattr__(self, "child_index_steps", tuple(child_index_steps))
+        # Placeholder for discrete action mapping
+        object.__setattr__(
+            self,
+            "sampled_actions",
+            tuple(tuple(range(action_count)) for action_count in self.max_actions),
+        )
 
 class GameStateProtocol:
     """
     Protocol expected by Continuous Decoupled MCTS:
+      
       - sample_actions(rng) -> List[Action]
       - apply_actions(actions) -> GameStateProtocol
       - is_terminal() -> bool
       - terminal_values() -> ValueMap
     """
+
     def sample_actions(self, rng: np.random.Generator, existing_actions: Optional[List[Action]] = None) -> List[Action]:
             raise NotImplementedError
 
@@ -52,7 +80,7 @@ RolloutFn = Callable[[GameStateProtocol], ValueMap]
 class _Node:
     __slots__ = (
         "state", "config", "parent", "action_taken_to_reach",
-        "children", "action_visits", "action_values", "visits"
+        "children", "action_visits", "action_values", "visits", "action_pools"
     )
 
     def __init__(
@@ -72,34 +100,41 @@ class _Node:
         self.children: List['_Node'] = []
         self.action_visits: List[int] = []
         self.action_values: List[List[float]] = [] 
+        self.action_pools: Optional[List[List[Action]]] = None # To store presampled multiple actions to later choose
 
     def is_fully_expanded_pw(self) -> bool:
         """Determines if we should sample a new action or select an existing one."""
         if self.visits == 0: # Edge case if the node was not expanded yet. PW sucky sucky
             return False
-        #print(f"Exponential in PW: {self.visits ** self.config.pw_alpha}")
-        #print(f"Progressive widening coefficient: {self.config.pw_c}")
-        #print(f"Current children: {self.children}")
-        max_children = math.ceil(self.config.pw_c * (self.visits ** self.config.pw_alpha))
-        #print(f"Max children: {max_children}")
-        return len(self.children) >= max_children
+
+        pw_limit = math.ceil(self.config.pw_c * (self.visits ** self.config.pw_alpha))
+        total_possible_combinations = math.prod(self.config.max_actions)
+
+        # Stop if oversampled or if no more combinations to explore
+        return len(self.children) >= pw_limit or len(self.children) >= total_possible_combinations
+
+    
 
     def select_or_expand(self) -> "_Node":
         #print(f"Current node {self.state}")
         #print(f"Current fully expanded {self.is_fully_expanded_pw()}")
         if not self.is_fully_expanded_pw():
             # EXPAND
-            existing_actions = [
-                child.action_taken_to_reach[0] # get the [float, float] tuple
-                for child in self.children 
-                if child.action_taken_to_reach is not None
-            ]
-            
-            # Pass existing_actions to the sampler
-            new_actions = self.state.sample_actions(self.config.rng, existing_actions)
-            
-            child_state = self.state.apply_actions(new_actions)
-            child_node = _Node(child_state, self.config, self, new_actions)
+            existing_actions_by_actor = [[] for _ in range(self.config.num_actors)]
+            for child in self.children:
+                if child.action_taken_to_reach is not None:
+                    for actor_idx in range(self.config.num_actors):
+                        existing_actions_by_actor[actor_idx].append(child.action_taken_to_reach[actor_idx])
+
+            # Pass them to the state
+            action_pools = self.state.sample_actions(self.config.rng, existing_actions_by_actor)
+                        
+            all_joint_combinations = list(itertools.product(*action_pools))
+            # Pick only 1 combination of robot - other actors action per expansion
+            new_joint_action = list(all_joint_combinations[len(self.children) % len(all_joint_combinations)])
+
+            child_state = self.state.apply_actions(new_joint_action)
+            child_node = _Node(child_state, self.config, self, new_joint_action)
             
             self.children.append(child_node)
             self.action_visits.append(0)
@@ -111,7 +146,11 @@ class _Node:
             best_score = -math.inf
             best_idx = 0
             #print(f"Children {self.children}")
+            # TODO: rewrite to consider multiple actions 
+            # When we sample an action, we want to have them stored in a non-premutable order
+            # the order must not be permuted otherwise we will lose track action - value pair
             for i in range(len(self.children)):
+                
                 action_visits = self.action_visits[i]
                 # We optimize selection based on the Robot's (Actor 0) value
                 q = self.action_values[i][0] / action_visits if action_visits > 0 else 0.0
@@ -180,6 +219,13 @@ class MCTS:
 
         # Backpropagate
         node.backpropagate(values)
+
+    def parse_states(self, node: _Node):
+        """ Designed to search the states of the tree 
+        and find the most proximal one
+        Each node has GameState. Each state is encoded into matrix with its position relative to other
+        """
+        
 
     def _get_expected_trajectory(self, node: _Node):
         nodes = []

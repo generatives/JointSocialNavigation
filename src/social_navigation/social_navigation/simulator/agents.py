@@ -215,13 +215,23 @@ class MCTSRobotAI:
         starting_distances = np.linalg.norm(goal_positions - positions, axis=1)
 
         num_agents = positions.shape[0]
+
+        # Try to manually define max samples per an actor
+
+        max_actions = (8,) + (1,) * (num_agents - 1)
+
+
+
         mcts_config = MCTSConfig(
             num_actors=num_agents, 
             rng=np.random.default_rng(), # better generator
+            max_actions=max_actions,
             max_depth=tree_depth,
+            c_puct=1.4,
             pw_c=2.0,       # pw constant
             pw_alpha=0.5    # pw exponent
         )
+
         state_config = MCTSGameStateConfig(
             mcts_config=mcts_config,
             robot_speed=robot_speed,
