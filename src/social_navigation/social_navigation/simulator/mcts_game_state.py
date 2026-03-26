@@ -225,7 +225,7 @@ class MCTSGameState(GameStateProtocol):
         value_accumulator = value_accumulator.copy()
         #value_accumulator[0] += 0.6 * self._sfm_force_score()
         #value_accumulator[0] += self._uncomfortable_distance()
-        value_accumulator[0] += 1.0 * self._uncomfortable_distance_meter_score()
+        value_accumulator[0] += 1.5 * self._uncomfortable_distance_meter_score()
         if self.is_terminal():
             value_accumulator += 1.0 * self._goal_distance()
         

@@ -162,7 +162,7 @@ class MCTS:
         child_node = root.children[best_child_idx]
         
         state_trajectory = []
-        for child in root.children:
+        for child in sorted(root.children, key=lambda n: n.visits, reverse=True)[:5]:
             trajectory = self._get_expected_trajectory(child)
             state_trajectory.extend([state for node in trajectory for state in [node.parent.state, node.state] if node.parent])
         

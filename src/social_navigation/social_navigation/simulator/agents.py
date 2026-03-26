@@ -220,7 +220,7 @@ class MCTSRobotAI:
             num_actors=num_agents, 
             rng=np.random.default_rng(), # better generator
             max_depth=tree_depth,
-            pw_c=1.0,       # pw constant
+            pw_c=2.0,       # pw constant
             pw_alpha=0.3   # pw exponent
         )
         state_config = MCTSGameStateConfig(
