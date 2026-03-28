@@ -64,7 +64,7 @@ class GameStateProtocol:
       - terminal_values() -> ValueMap
     """
 
-    def sample_action(self, actor_idx: int, rng: np.random.Generator, existing_actions: Optional[List[Action]] = None) -> Action:
+    def sample_action(self, actor_idx: int, rng: np.random.Generator, existing_actions: Optional[List[Tuple[Action, float]]] = None) -> Tuple[Action, float]:
             raise NotImplementedError
 
     def apply_actions(self, actions: List[Action]) -> "GameStateProtocol":
@@ -164,8 +164,10 @@ class _Node:
                 best_idx = 0
                 for action_idx in range(num_actions):
                     visits = action_visits[action_idx]
-                    q = action_values[action_idx] / visits if visits > 0 else 0.0
-                    u = self.config.c_puct * (sqrt_visits / (1 + visits))
+                    value = action_values[action_idx]
+                    _, probability = self.action_definitions[actor_idx][action_idx]
+                    q = value / visits if visits > 0 else 0.0
+                    u = self.config.c_puct * probability * (sqrt_visits / (1 + visits))
                     score = q + u
                     
                     if score > best_score:

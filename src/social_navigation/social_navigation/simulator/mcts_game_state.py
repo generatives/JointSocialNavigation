@@ -18,6 +18,16 @@ class MCTSGameStateConfig:
     robot_radius: float
     human_radius: float
     starting_distances: float
+    action_progress_weight: float = 0.3
+    action_heading_weight: float = 1.0
+    robot_angular_velocity_actions: np.ndarray = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "robot_angular_velocity_actions",
+            np.array([-self.robot_angular_velocity, 0.0, self.robot_angular_velocity], dtype=np.float32),
+        )
 
 
 class MCTSGameState(GameStateProtocol):
@@ -327,7 +337,7 @@ def navigation_rollout(state: MCTSGameState):
     rng = state.config.mcts_config.rng
     while not state.is_terminal():
         action_definitions = [
-            state.sample_action(actor_idx, rng)
+            state.sample_action(actor_idx, rng)[0]
             for actor_idx
             in range(state.config.mcts_config.num_actors)
         ]

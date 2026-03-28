@@ -52,7 +52,8 @@ class OrderedTwoAgentGameState(GameStateProtocol):
                 for action_idx, delta in enumerate(self.possible_actions):
                     new_position = self.positions[actor] + delta
                     if self._is_free(new_position):
-                        legal_actions.append(action_idx)
+                        legal_actions.append((action_idx, 1.0))
+                        
                 actors_legal_actions.append(legal_actions)
 
         return actors_legal_actions
@@ -114,9 +115,11 @@ def coordinated_ordered_rollout(state: OrderedTwoAgentGameState):
         selected_actions = []
         for actions in legal_actions:
             if len(actions) > 1:
-                selected_actions.append(random.choice(actions))
+                action, _ = random.choice(actions)
             else:
-                selected_actions.append(actions[0])
+                action, _ = actions[0]
+
+            selected_actions.append(action)
 
         state = state.apply_actions(selected_actions)
         rollout_depth += 1

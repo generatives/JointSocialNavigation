@@ -240,7 +240,7 @@ class MCTSRobotAI:
             robot_radius=robot.radius,
             human_radius=np.mean(self.crowd.radius),
             robot_angular_velocity=robot_omega,
-            uncomfortable_distance=1.5,
+            uncomfortable_distance=1.75,
             starting_distances=starting_distances,
             map=self.scenario,
         )

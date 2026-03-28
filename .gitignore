@@ -75,3 +75,4 @@ frames*
 
 # Our Modules
 !src/social_navigation/
+!src/social_simulator/

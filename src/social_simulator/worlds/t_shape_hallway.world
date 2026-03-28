@@ -103,27 +103,56 @@
             <izz>0</izz>
           </inertia>
         </inertial>
-        <collision name='collision'>
-          <pose>0 0 0 0 0 0</pose>
-          <geometry>
-            <mesh>
-              <uri>model://t_shape_hallway/meshes/t_shape_hallway.stl</uri>
-            </mesh>
-          </geometry>
-          <max_contacts>10</max_contacts>
-          <surface>
-            <contact>
-              <ode/>
-            </contact>
-            <bounce/>
-            <friction>
-              <torsional>
-                <ode/>
-              </torsional>
-              <ode/>
-            </friction>
-          </surface>
-        </collision>
+
+      <collision name='collision_0'>
+        <pose>-2.475000 -5.075000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 9.850000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_1'>
+        <pose>2.525000 -5.075000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.250000 9.850000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_2'>
+        <pose>-6.175000 -0.025000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>7.650000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_3'>
+        <pose>6.200000 -0.025000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>7.600000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <collision name='collision_4'>
+        <pose>0.025000 3.725000 0.750000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>19.950000 0.250000 1.500000</size>
+          </box>
+        </geometry>
+        <max_contacts>10</max_contacts>
+      </collision>
         <visual name='visual'>
           <pose>0 0 0 0 0 0</pose>
           <geometry>

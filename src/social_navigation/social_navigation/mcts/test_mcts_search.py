@@ -19,7 +19,7 @@ class NeverendingGameState(GameStateProtocol):
         self.values = values or [0] * self.config.num_actors
 
     def legal_actions(self) -> Iterable[Iterable[Action]]:
-        actors_legal_actions = [list(range(num_actions)) for num_actions in self.config.max_actions]
+        actors_legal_actions = [list(((action_idx, 1.0) for action_idx in range(num_actions))) for num_actions in self.config.max_actions]
         return actors_legal_actions
 
     def apply_actions(self, actions: Action) -> GameStateProtocol:
@@ -48,7 +48,7 @@ class AddingGameState(GameStateProtocol):
         self.values = values or [0] * self.config.num_actors
 
     def legal_actions(self) -> Iterable[Iterable[Action]]:
-        actors_legal_actions = [list(range(num_actions)) for num_actions in self.config.max_actions]
+        actors_legal_actions = [list(((action_idx, 1.0) for action_idx in range(num_actions))) for num_actions in self.config.max_actions]
         return actors_legal_actions
 
     def apply_actions(self, actions: Action) -> GameStateProtocol:
@@ -77,9 +77,11 @@ def simple_rollout_fn(max_depth: int = 4):
             selected_actions = []
             for actions in legal_actions:
                 if len(actions) > 1:
-                    selected_actions.append(random.choice(actions))
+                    action, _ = random.choice(actions)
                 else:
-                    selected_actions.append(actions[0])
+                    action, _ = actions[0]
+
+                selected_actions.append(action)
 
             state = state.apply_actions(selected_actions)
             rollout_depth += 1

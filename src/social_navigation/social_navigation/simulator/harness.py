@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import multiprocessing as mp
+from pathlib import Path
 import random
 from typing import Sequence
 
 import numpy as np
+
+from rendering.pygame_threaded import ThreadedPygameRuntime
+from rendering.simulation_renderer import draw_simulation
 
 from .simulation import NavigationSimulation
 
@@ -15,12 +19,13 @@ GoalCell = tuple[int, int]
 @dataclass(slots=True)
 class RunConfig:
     seed: int
-    goals: tuple[GoalCell, ...]
     control_mode: str = "ROBOT_AI"
     dt: float = 1.0 / 30.0
     warmup_seconds: float = 6.0
     max_steps_total: int = 1200
     max_humans: int = 220
+    recording_path: str | Path | None = None
+    recording_fps: int = 30
 
 
 @dataclass(slots=True)
@@ -46,6 +51,22 @@ def run_single(config: RunConfig) -> RunResult:
     simulation = NavigationSimulation(control_mode=config.control_mode, max_humans=config.max_humans)
     simulation.warmup(config.warmup_seconds, dt=config.dt)
 
+
+    cell_px = 24
+    if config.recording_path is not None:
+        runtime = ThreadedPygameRuntime(
+            window_size=(simulation.scenario.width * cell_px, simulation.scenario.height * cell_px),
+            title="Crowded Navigation Simulator",
+            font_name="consolas",
+            font_size=18,
+            recording_path=config.recording_path,
+            recording_fps=config.recording_fps,
+            headless=True
+        )
+        runtime.start()
+    else:
+        runtime = None
+
     goals_reached = 0
     timed_out_goals = 0
     wall_collisions = 0
@@ -56,7 +77,7 @@ def run_single(config: RunConfig) -> RunResult:
     time_to_destination: list[float] = []
     remaining_steps = config.max_steps_total
 
-    for goal in config.goals:
+    for goal in simulation.scenario.robot_goals:
         if remaining_steps <= 0:
             timed_out_goals += 1
             time_to_destination.append(float("inf"))
@@ -66,13 +87,16 @@ def run_single(config: RunConfig) -> RunResult:
 
         reached = False
         while remaining_steps > 0:
+            if runtime is not None:
+                runtime.submit_frame(draw_simulation(simulation, cell_px))
+
             metrics = simulation.update(config.dt)
             remaining_steps -= 1
             wall_collisions += int(metrics.collided_with_wall)
             human_collisions += metrics.robot_human_collisions
             robot_social_force_generated += metrics.robot_social_force_generated
             distance_travelled += metrics.distance_travelled
-            if simulation.goal_reached(goal):
+            if simulation.goal_reached(goal, tolerance=1.5):
                 reached = True
                 break
 
@@ -88,10 +112,14 @@ def run_single(config: RunConfig) -> RunResult:
     average_time_to_destination = (
         total_time_to_destination / goals_reached if goals_reached > 0 else float("inf")
     )
+
+    if runtime is not None:
+        runtime.stop()
+
     return RunResult(
         seed=config.seed,
         control_mode=config.control_mode,
-        goals_total=len(config.goals),
+        goals_total=len(simulation.scenario.robot_goals),
         goals_reached=goals_reached,
         timed_out_goals=timed_out_goals,
         wall_collisions=wall_collisions,
@@ -105,7 +133,6 @@ def run_single(config: RunConfig) -> RunResult:
 
 
 def run_parallel(
-    goals: Sequence[GoalCell],
     *,
     control_mode: str = "ROBOT_AI",
     num_runs: int = 8,
@@ -119,12 +146,13 @@ def run_parallel(
     configs = [
         RunConfig(
             seed=base_seed + idx,
-            goals=tuple(goals),
             control_mode=control_mode,
             dt=dt,
             warmup_seconds=warmup_seconds,
             max_steps_total=max_steps_total,
             max_humans=max_humans,
+            recording_fps=30,
+            recording_path="recordings/harness.mp4" if idx == 0 else None,
         )
         for idx in range(num_runs)
     ]
@@ -154,6 +182,6 @@ def run_parallel(
         "mean_time_to_destination": (
             float(sum(valid_times) / len(valid_times)) if valid_times else float("inf")
         ),
-        "per_run": [asdict(r) for r in results],
+        #"per_run": [asdict(r) for r in results],
     }
     return aggregate

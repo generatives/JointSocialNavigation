@@ -17,7 +17,7 @@ class SimpleGameState(GameStateProtocol):
         self.values = values or [0] * self.config.num_actors
 
     def legal_actions(self) -> Iterable[Iterable[Action]]:
-        actors_legal_actions = [list(range(num_actions)) for num_actions in self.config.max_actions]
+        actors_legal_actions = [list(((action_idx, 1.0) for action_idx in range(num_actions))) for num_actions in self.config.max_actions]
         return actors_legal_actions
 
     def apply_actions(self, actions: Action) -> GameStateProtocol:
