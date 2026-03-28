@@ -7,6 +7,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
+from rclpy.duration import Duration
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 import tf2_ros
 
@@ -47,8 +48,8 @@ class Navigator(Node):
             raise RuntimeError("navigate_to_pose action server not available")
         self._navigate_to_pose_client = client
 
-        timer_period = 0.5  # seconds
-        self.timer = self.create_timer(timer_period, self.timer_callback)
+        timer_period = 1.0  # seconds
+        self.plan_timer = self.create_timer(timer_period, self.plan_timer_callback)
 
         self.goal_subscription = self.create_subscription(
             PointStamped,
@@ -123,7 +124,7 @@ class Navigator(Node):
         self._goal_point = msg
         self._global_plan_cells = []
         self._last_global_plan_time = None
-        self._plan_intermediate_goal()
+        self._plan()
 
     def human_states_callback(self, msg: Agents):
         num_agents = len(msg.agents)
@@ -295,11 +296,24 @@ class Navigator(Node):
         self._last_global_plan_time = None
 
     def _lookup_robot_transform(self):
-        return self.tf_buffer.lookup_transform(
-            "map",
-            "base_link",
-            rclpy.time.Time()
-        )
+        try:
+            if not self.tf_buffer.can_transform(
+                "map",
+                "base_link",
+                rclpy.time.Time(),
+                timeout=Duration(seconds=0.2),
+            ):
+                self.get_logger().warn("TF map<-base_link not available yet; skipping this planning cycle.")
+                return None
+
+            return self.tf_buffer.lookup_transform(
+                "map",
+                "base_link",
+                rclpy.time.Time()
+            )
+        except tf2_ros.TransformException as exc:
+            self.get_logger().warn(f"TF lookup failed: {exc}")
+            return None
 
     def _publish_global_path(self, path_cells: list[tuple[int, int]]) -> None:
         path_msg = Path()
@@ -429,13 +443,15 @@ class Navigator(Node):
         self._publish_local_waypoint(waypoint)
         return waypoint
 
-    def _plan_intermediate_goal(self):
+    def _plan(self):
         if self._goal_point is None:
             return
 
         plan_start_time = time.perf_counter()
 
         transform = self._lookup_robot_transform()
+        if transform is None:
+            return
 
         robot_position = np.array([transform.transform.translation.x, transform.transform.translation.y])
         goal_position = np.array([self._goal_point.point.x, self._goal_point.point.y])
@@ -458,7 +474,7 @@ class Navigator(Node):
 
         tree_depth = 6
 
-        robot_speed = 0.5
+        robot_speed = 1.0
         robot_radius = 0.5
         dt = self._get_prediction_dt(tree_depth, robot_speed)
         robot_yaw = quat_to_yaw(
@@ -527,12 +543,9 @@ class Navigator(Node):
             depth=0
         )
 
-        self.get_logger().info(f"Postion: {positions} {velocities}")
         mcts_start_time = time.perf_counter()
         best_action, child_state, _, _ = mcts.search(root_state, num_simulations=500)
         mcts_elapsed_ms = (time.perf_counter() - mcts_start_time) * 1000.0
-
-        self.get_logger().info(f"Child state velocities: {child_state.velocities}")
 
         intermediate_goal = child_state.positions[0].copy()
         self._publish_nav2_goal_marker(intermediate_goal)
@@ -545,8 +558,6 @@ class Navigator(Node):
         )
         self.send_cmd_vel(linear_velocity, angular_velocity)
 
-        # yaw = math.atan2(child_velocity[1], child_velocity[0])
-        # self.send_goal(intermediate_goal[0], intermediate_goal[1], yaw)
 
     def send_cmd_vel(self, v: float, w: float):
         cmd_vel_msg = Twist()
@@ -610,8 +621,8 @@ class Navigator(Node):
             self.get_logger().warn(f"Navigation finished with status={status}")
 
 
-    def timer_callback(self):
-        self._plan_intermediate_goal()
+    def plan_timer_callback(self):
+        self._plan()
 
 
 def main(args=None):
