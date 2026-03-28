@@ -95,9 +95,9 @@ class Navigator(Node):
             '/mcts_local_waypoint',
             10,
         )
-        self.nav2_goal_marker_publisher = self.create_publisher(
+        self.mcts_child_state_marker_publisher = self.create_publisher(
             Marker,
-            '/mcts_nav2_goal',
+            '/mcts_child_state',
             10,
         )
 
@@ -358,16 +358,16 @@ class Navigator(Node):
         marker.color.b = 0.1
         self.local_waypoint_publisher.publish(marker)
 
-    def _publish_nav2_goal_marker(self, goal: np.ndarray | None) -> None:
+    def _publish_child_state_marker(self, goal: np.ndarray | None) -> None:
         marker = Marker()
         marker.header.frame_id = "map"
         marker.header.stamp = self.get_clock().now().to_msg()
-        marker.ns = "mcts_nav2_goal"
+        marker.ns = "mcts_child_state"
         marker.id = 0
 
         if goal is None:
             marker.action = Marker.DELETE
-            self.nav2_goal_marker_publisher.publish(marker)
+            self.mcts_child_state_marker_publisher.publish(marker)
             return
 
         marker.type = Marker.SPHERE
@@ -383,14 +383,14 @@ class Navigator(Node):
         marker.color.r = 0.95
         marker.color.g = 0.1
         marker.color.b = 0.1
-        self.nav2_goal_marker_publisher.publish(marker)
+        self.mcts_child_state_marker_publisher.publish(marker)
 
     def _update_global_plan(self, robot_position: np.ndarray) -> None:
         if self._goal_point is None:
             self._global_plan_cells = []
             self._publish_global_path([])
             self._publish_local_waypoint(None)
-            self._publish_nav2_goal_marker(None)
+            self._publish_child_state_marker(None)
             return
 
         now = self.get_clock().now()
@@ -407,7 +407,7 @@ class Navigator(Node):
             self._global_plan_cells = []
             self._publish_global_path([])
             self._publish_local_waypoint(None)
-            self._publish_nav2_goal_marker(None)
+            self._publish_child_state_marker(None)
             self._last_global_plan_time = now
             return
 
@@ -416,13 +416,13 @@ class Navigator(Node):
         self._publish_global_path(path_cells)
         if not path_cells:
             self._publish_local_waypoint(None)
-            self._publish_nav2_goal_marker(None)
+            self._publish_child_state_marker(None)
         self._last_global_plan_time = now
 
     def _select_local_waypoint(self, robot_position: np.ndarray) -> np.ndarray | None:
         if not self._global_plan_cells:
             self._publish_local_waypoint(None)
-            self._publish_nav2_goal_marker(None)
+            self._publish_child_state_marker(None)
             return None
 
         path_points = np.array(
@@ -463,7 +463,7 @@ class Navigator(Node):
             self._last_global_plan_time = None
             self._publish_global_path([])
             self._publish_local_waypoint(None)
-            self._publish_nav2_goal_marker(None)
+            self._publish_child_state_marker(None)
             return
 
         self._update_global_plan(robot_position)
@@ -548,7 +548,7 @@ class Navigator(Node):
         mcts_elapsed_ms = (time.perf_counter() - mcts_start_time) * 1000.0
 
         intermediate_goal = child_state.positions[0].copy()
-        self._publish_nav2_goal_marker(intermediate_goal)
+        self._publish_child_state_marker(intermediate_goal)
 
         linear_velocity, angular_velocity = root_state.get_command_velocities(best_action[0])
         total_plan_elapsed_ms = (time.perf_counter() - plan_start_time) * 1000.0
