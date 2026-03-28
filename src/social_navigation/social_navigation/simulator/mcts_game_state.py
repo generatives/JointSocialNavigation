@@ -42,9 +42,8 @@ class MCTSGameState(GameStateProtocol):
         self._accumulated_value = self._accumulate_value(accumulated_value)
 
    
-    def sample_actions(self, rng: np.random.Generator, existing_actions: Optional[List[List[Action]]] = None) -> List[List[Action]]:
-        """Samples continuous actions for each actor, ensuring diversity within the pool and against existing expansions."""
-        action_pools = []
+    def sample_action(self, actor_idx: int, rng: np.random.Generator, existing_actions: Optional[List[Action]] = None) -> Action:
+        """Samples a new action for the actor, ensuring diversity within the pool and against existing expansions."""
         
         # To modify later  based on specific heuristics 
         v_mean, v_std =  0.9 * self.config.robot_speed, 0.5
@@ -54,67 +53,40 @@ class MCTSGameState(GameStateProtocol):
         v_scale = self.config.robot_speed if self.config.robot_speed > 0 else 1.0
         omega_scale = self.config.robot_angular_velocity if self.config.robot_angular_velocity > 0 else 1.0
 
-        num_actors = self.config.mcts_config.num_actors
-
-        for actor_idx in range(num_actors):
-            actor_pool = []
-            
-            # Extract existing actions for this specific actor within specific nodes
-            # if provided by tree
-            known_actions = []
-            if existing_actions is not None and len(existing_actions) > actor_idx:
-                known_actions = list(existing_actions[actor_idx])
-            
-            num_to_sample = self.config.mcts_config.max_actions[actor_idx]
-            
-            for _ in range(num_to_sample):
-                best_v, best_omega = 0.0, 0.0
-
-                # Humans (Actor 1+)
-                if actor_idx > 0:
+        best_v, best_omega = 0.0, 0.0
+        # Humans (Actor 1+)
+        if actor_idx > 0:
+            # Currently dummy actions (SFM overrides this in apply_actions).
+            best_v, best_omega = 0.0, 0.0
+            # To modify later
+        else:
+            # Robot (Actor 0)
+            if not existing_actions:
+                # First action has nothing to be diverse against
+                best_v = float(np.clip(rng.normal(v_mean, v_std), 0.0, self.config.robot_speed))
+                best_omega = float(np.clip(rng.normal(omega_mean, omega_std), -self.config.robot_angular_velocity, self.config.robot_angular_velocity))
+            else:
+                max_min_dist = -1.0
+                num_candidates = 5 # Number of samples to draw from the distribution
+                existing_arr = np.array(existing_actions) # Shape: (N, 2)
+                
+                for _ in range(num_candidates):
+                    v_cand = float(np.clip(rng.normal(v_mean, v_std), 0.0, self.config.robot_speed))
+                    omega_cand = float(np.clip(rng.normal(omega_mean, omega_std), -self.config.robot_angular_velocity, self.config.robot_angular_velocity))
                     
-                    # Currently dummy actions (SFM overrides this in apply_actions).
+                    # Calculate scaled distance to all known actions
+                    v_diffs = (existing_arr[:, 0] - v_cand) / v_scale
+                    omega_diffs = (existing_arr[:, 1] - omega_cand) / omega_scale
+                    dists = np.sqrt(v_diffs**2 + omega_diffs**2) # Eucledian distance
                     
-                    best_v, best_omega = 0.0, 0.0
-                    # To modify later
-                else:
-                    # Robot (Actor 0)
-                    if not known_actions:
-                        # First action has nothing to be diverse against
-                        best_v = float(np.clip(rng.normal(v_mean, v_std), 0.0, self.config.robot_speed))
-                        best_omega = float(np.clip(rng.normal(omega_mean, omega_std), -self.config.robot_angular_velocity, self.config.robot_angular_velocity))
-                    else:
-                        max_min_dist = -1.0
-                        num_candidates = 5 # Number of samples to draw from the distribution
-                        existing_arr = np.array(known_actions) # Shape: (N, 2)
-                        
-                        for _ in range(num_candidates):
-                            v_cand = float(np.clip(rng.normal(v_mean, v_std), 0.0, self.config.robot_speed))
-                            omega_cand = float(np.clip(rng.normal(omega_mean, omega_std), -self.config.robot_angular_velocity, self.config.robot_angular_velocity))
-                            
-                            # Calculate scaled distance to all known actions
-                            v_diffs = (existing_arr[:, 0] - v_cand) / v_scale
-                            omega_diffs = (existing_arr[:, 1] - omega_cand) / omega_scale
-                            dists = np.sqrt(v_diffs**2 + omega_diffs**2) # Eucledian distance
-                            
-                            min_tree_dist = float(np.min(dists))
-                            
-                            # Keep the sample that is furthest from already-explored actions
-                            if min_tree_dist > max_min_dist:
-                                max_min_dist = min_tree_dist
-                                best_v, best_omega = v_cand, omega_cand
-                
-                # Add to the current pool to return
-                actor_pool.append((best_v, best_omega))
-                
-                # Next sample will make largest distance from already sampled 
-                known_actions.append((best_v, best_omega))
-                
-            action_pools.append(actor_pool)
-
-        return action_pools
+                    min_tree_dist = float(np.min(dists))
+                    
+                    # Keep the sample that is furthest from already-explored actions
+                    if min_tree_dist > max_min_dist:
+                        max_min_dist = min_tree_dist
+                        best_v, best_omega = v_cand, omega_cand
     
-
+        return (best_v, best_omega)
 
 
     def _propagate_unicycle(self, x, y, theta, v, omega, dt, eps=1e-9):
@@ -354,7 +326,10 @@ class MCTSGameState(GameStateProtocol):
 def navigation_rollout(state: MCTSGameState):
     rng = state.config.mcts_config.rng
     while not state.is_terminal():
-        action_pools = state.sample_actions(rng)
-        joint_action = [rng.choice(pool) for pool in action_pools]
-        state = state.apply_actions(joint_action)
+        action_definitions = [
+            state.sample_action(actor_idx, rng)
+            for actor_idx
+            in range(state.config.mcts_config.num_actors)
+        ]
+        state = state.apply_actions(action_definitions)
     return state.terminal_values()

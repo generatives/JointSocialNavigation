@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
+import random
 from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 import itertools
@@ -63,7 +64,7 @@ class GameStateProtocol:
       - terminal_values() -> ValueMap
     """
 
-    def sample_actions(self, rng: np.random.Generator, existing_actions: Optional[List[Action]] = None) -> List[Action]:
+    def sample_action(self, actor_idx: int, rng: np.random.Generator, existing_actions: Optional[List[Action]] = None) -> Action:
             raise NotImplementedError
 
     def apply_actions(self, actions: List[Action]) -> "GameStateProtocol":
@@ -80,7 +81,7 @@ RolloutFn = Callable[[GameStateProtocol], ValueMap]
 class _Node:
     __slots__ = (
         "state", "config", "parent", "action_taken_to_reach",
-        "children", "action_visits", "action_values", "visits", "action_pools"
+        "children", "action_visits", "action_values", "action_definitions", "visits", "action_pools"
     )
 
     def __init__(
@@ -97,80 +98,94 @@ class _Node:
         self.visits = 0
         
         # Parallel lists to track continuous action branches
-        self.children: List['_Node'] = []
-        self.action_visits: List[int] = []
-        self.action_values: List[List[float]] = [] 
-        self.action_pools: Optional[List[List[Action]]] = None # To store presampled multiple actions to later choose
+        self.children: Dict[Tuple[int, ...], '_Node'] = {}
+        self.action_visits: List[List[int]] = [[] for _ in range(self.config.num_actors)]
+        self.action_values: List[List[float]] = [[] for _ in range(self.config.num_actors)]
+        self.action_definitions: List[List[Action]] = [[] for _ in range(self.config.num_actors)]
+
+    def get_child(self, actions: Tuple[int, ...]) -> "_Node":
+        if actions in self.children:
+            return self.children[actions]
+        else:
+            action_definitions = [self.action_definitions[actor_idx][action_idx] for actor_idx, action_idx in enumerate(actions)]
+            new_child_state = self.state.apply_actions(action_definitions)
+            new_child_node = _Node(new_child_state, self.config, self, actions)
+            self.children[actions] = new_child_node
+            return new_child_node
+
+    def get_target_action_counts(self) -> List[int]:
+        if self.visits == 0: # Edge case if the node was not expanded yet. PW sucky sucky
+            return [1] * self.config.num_actors
+
+        pw_limit = math.ceil(self.config.pw_c * (self.visits ** self.config.pw_alpha))
+
+        target_counts = [
+            pw_limit if pw_limit < max_actions else max_actions
+            for max_actions
+            in self.config.max_actions
+        ]
+        return target_counts
 
     def is_fully_expanded_pw(self) -> bool:
         """Determines if we should sample a new action or select an existing one."""
-        if self.visits == 0: # Edge case if the node was not expanded yet. PW sucky sucky
-            return False
-
-        pw_limit = math.ceil(self.config.pw_c * (self.visits ** self.config.pw_alpha))
-        total_possible_combinations = math.prod(self.config.max_actions)
-
-        # Stop if oversampled or if no more combinations to explore
-        return len(self.children) >= pw_limit or len(self.children) >= total_possible_combinations
-
-    
+        target_action_counts = self.get_target_action_counts()
+        action_counts = [len(actions) for actions in self.action_visits]
+        actor_is_fully_expanded = [
+            action_count >= target_count
+            for action_count, target_count
+            in zip(action_counts, target_action_counts)
+        ]
+        return all(actor_is_fully_expanded)
 
     def select_or_expand(self) -> "_Node":
         #print(f"Current node {self.state}")
         #print(f"Current fully expanded {self.is_fully_expanded_pw()}")
-        if not self.is_fully_expanded_pw():
-            # EXPAND
-            existing_actions_by_actor = [[] for _ in range(self.config.num_actors)]
-            for child in self.children:
-                if child.action_taken_to_reach is not None:
-                    for actor_idx in range(self.config.num_actors):
-                        existing_actions_by_actor[actor_idx].append(child.action_taken_to_reach[actor_idx])
+        selected_actions = []
+        target_action_counts = self.get_target_action_counts()
+        for actor_idx in range(self.config.num_actors):
+            action_visits = self.action_visits[actor_idx]
+            action_values = self.action_values[actor_idx]
+            num_actions = len(action_visits)
+            if num_actions < target_action_counts[actor_idx]:
+                existing_actions = self.action_definitions[actor_idx]
 
-            # Pass them to the state
-            action_pools = self.state.sample_actions(self.config.rng, existing_actions_by_actor)
-                        
-            all_joint_combinations = list(itertools.product(*action_pools))
-            # Pick only 1 combination of robot - other actors action per expansion
-            new_joint_action = list(all_joint_combinations[len(self.children) % len(all_joint_combinations)])
+                # Pass them to the state
+                target_action_counts = self.get_target_action_counts()
+                new_action = self.state.sample_action(actor_idx, self.config.rng, existing_actions)
 
-            child_state = self.state.apply_actions(new_joint_action)
-            child_node = _Node(child_state, self.config, self, new_joint_action)
-            
-            self.children.append(child_node)
-            self.action_visits.append(0)
-            self.action_values.append([0.0] * self.config.num_actors)
-            return child_node
-        else:
-            # SELECT
-            sqrt_visits = math.sqrt(self.visits + 1)
-            best_score = -math.inf
-            best_idx = 0
-            #print(f"Children {self.children}")
-            # TODO: rewrite to consider multiple actions 
-            # When we sample an action, we want to have them stored in a non-premutable order
-            # the order must not be permuted otherwise we will lose track action - value pair
-            for i in range(len(self.children)):
-                
-                action_visits = self.action_visits[i]
-                # We optimize selection based on the Robot's (Actor 0) value
-                q = self.action_values[i][0] / action_visits if action_visits > 0 else 0.0
-                u = self.config.c_puct * (sqrt_visits / (1 + action_visits))
-                score = q + u
-                
-                if score > best_score:
-                    best_score = score
-                    best_idx = i
+                self.action_visits[actor_idx].append(0)
+                self.action_values[actor_idx].append(0.0)
+                self.action_definitions[actor_idx].append(new_action)
+
+                selected_actions.append(len(self.action_visits[actor_idx]) - 1)
+            else:
+                sqrt_visits = math.sqrt(self.visits + 1)
+                best_score = -math.inf
+                best_idx = 0
+                for action_idx in range(num_actions):
+                    visits = action_visits[action_idx]
+                    q = action_values[action_idx] / visits if visits > 0 else 0.0
+                    u = self.config.c_puct * (sqrt_visits / (1 + visits))
+                    score = q + u
                     
-            return self.children[best_idx]
+                    if score > best_score:
+                        best_score = score
+                        best_idx = action_idx
+
+                selected_actions.append(best_idx)
+
+        child_node = self.get_child(tuple(selected_actions))
+
+        return child_node
 
     def backpropagate(self, values: ValueMap) -> None:
         self.visits += 1
-        if self.parent is not None:
-            idx = self.parent.children.index(self)
-            self.parent.action_visits[idx] += 1
-            for actor in range(self.config.num_actors):
-                self.parent.action_values[idx][actor] += values[actor]
-            self.parent.backpropagate(values)
+        parent = self.parent
+        if parent is not None:
+            for actor, action in enumerate(self.action_taken_to_reach):
+                parent.action_visits[actor][action] += 1
+                parent.action_values[actor][action] += values[actor]
+            parent.backpropagate(values)
 
 
 class MCTS:
@@ -195,17 +210,17 @@ class MCTS:
         best_actions = self._most_visited_actions(root)
         #print(f"Best actions at {root_state}, : {best_actions}")
         #print(f"Root of children {root.children}")
-        
-        best_child_idx = root.children.index(next(c for c in root.children if c.action_taken_to_reach == best_actions))
 
-        child_node = root.children[best_child_idx]
+        child_node = root.get_child(tuple(best_actions))
         
         state_trajectory = []
-        for child in sorted(root.children, key=lambda n: n.visits, reverse=True)[:5]:
+        for child in sorted(root.children.values(), key=lambda n: n.visits, reverse=True)[:5]:
             trajectory = self._get_expected_trajectory(child)
             state_trajectory.extend([state for node in trajectory for state in [node.parent.state, node.state] if node.parent])
+
+        best_action_definition = [root.action_definitions[actor_idx][action_idx] for actor_idx, action_idx in enumerate(best_actions)]
         
-        return best_actions, child_node.state, state_trajectory, None
+        return best_action_definition, child_node.state, state_trajectory, None
         
     def _search_iteration(self, root: _Node):
         node = root
@@ -227,24 +242,21 @@ class MCTS:
         # Backpropagate
         node.backpropagate(values)
 
-    def parse_states(self, node: _Node):
-        """ Designed to search the states of the tree 
-        and find the most proximal one
-        Each node has GameState. Each state is encoded into matrix with its position relative to other
-        """
-        
-
     def _get_expected_trajectory(self, node: _Node):
         nodes = []
         while not node.state.is_terminal() and node.visits > 0 and len(node.children) > 0:
             best_actions = self._most_visited_actions(node)
-            best_child = next(c for c in node.children if c.action_taken_to_reach == best_actions)
+            best_child = node.get_child(tuple(best_actions))
             nodes.append(best_child)
             node = best_child
         return nodes
 
     def _most_visited_actions(self, root: _Node) -> List[Action]:
-        if not root.children:
-            return [(0.0, 0.0)] * self.config.num_actors
-        best_idx = np.argmax(root.action_visits)
-        return root.children[best_idx].action_taken_to_reach
+        actions = []
+        for actor in range(self.config.num_actors):
+            action_visits = root.action_visits[actor]
+            max_visits = max(action_visits)
+            action = self.config.rng.choice([action for action, visits in enumerate(action_visits) if visits >= max_visits])
+            actions.append(action)
+
+        return actions
