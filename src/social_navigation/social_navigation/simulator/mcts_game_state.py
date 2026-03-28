@@ -52,7 +52,48 @@ class MCTSGameState(GameStateProtocol):
         self._accumulated_value = self._accumulate_value(accumulated_value)
 
    
-    def sample_action(self, actor_idx: int, rng: np.random.Generator, existing_actions: Optional[List[Action]] = None) -> Action:
+    def _score_robot_action(self, linear_velocity, rotational_velocity) -> float:
+        robot_position = self.positions[0, :]
+        robot_velocity = self.velocities[0, :]
+        robot_orientation = np.arctan2(robot_velocity[1], robot_velocity[0])
+
+        x_new, y_new, robot_new_orientation = self._propagate_unicycle(
+            robot_position[0],
+            robot_position[1],
+            robot_orientation,
+            linear_velocity,
+            rotational_velocity,
+            self.config.dt,
+        )
+
+        goal_vector = self.agent_goal_positions[0, :] - self.positions[0, :]
+        goal_norm = np.linalg.norm(goal_vector)
+        goal_direction = goal_vector / goal_norm if goal_norm > 1e-9 else np.zeros_like(goal_vector)
+        goal_heading = math.atan2(goal_vector[1], goal_vector[0]) if goal_norm > 1e-9 else 0.0
+
+        action_vector = np.array([x_new, y_new]) - self.positions[0, :]
+        action_norm = np.linalg.norm(action_vector)
+        if action_norm > 1e-9 and goal_norm > 1e-9:
+            progress_alignment = float(np.dot(goal_direction, action_vector / action_norm))
+        elif action_norm <= 1e-9 and goal_norm > 1e-9:
+            progress_alignment = 0.0
+        else:
+            progress_alignment = 1.0
+
+        heading_error = math.atan2(
+            math.sin(goal_heading - robot_new_orientation),
+            math.cos(goal_heading - robot_new_orientation),
+        )
+        heading_alignment = math.cos(heading_error) if goal_norm > 1e-9 else 1.0
+
+        combined_alignment = (
+            self.config.action_progress_weight * progress_alignment
+            + self.config.action_heading_weight * heading_alignment
+        )
+        score = float(np.exp(combined_alignment - 1.0))
+        return score
+
+    def sample_action(self, actor_idx: int, rng: np.random.Generator, existing_actions: Optional[List[Tuple[Action, float]]] = None) -> Tuple[Action, float]:
         """Samples a new action for the actor, ensuring diversity within the pool and against existing expansions."""
         
         # To modify later  based on specific heuristics 
@@ -63,13 +104,9 @@ class MCTSGameState(GameStateProtocol):
         v_scale = self.config.robot_speed if self.config.robot_speed > 0 else 1.0
         omega_scale = self.config.robot_angular_velocity if self.config.robot_angular_velocity > 0 else 1.0
 
-        best_v, best_omega = 0.0, 0.0
-        # Humans (Actor 1+)
-        if actor_idx > 0:
-            # Currently dummy actions (SFM overrides this in apply_actions).
-            best_v, best_omega = 0.0, 0.0
-            # To modify later
-        else:
+        best_v, best_omega, score = 0.0, 0.0, 1.0
+
+        if actor_idx == 0:
             # Robot (Actor 0)
             if not existing_actions:
                 # First action has nothing to be diverse against
@@ -78,7 +115,7 @@ class MCTSGameState(GameStateProtocol):
             else:
                 max_min_dist = -1.0
                 num_candidates = 5 # Number of samples to draw from the distribution
-                existing_arr = np.array(existing_actions) # Shape: (N, 2)
+                existing_arr = np.array([action for action, _ in existing_actions]) # Shape: (N, 2)
                 
                 for _ in range(num_candidates):
                     v_cand = float(np.clip(rng.normal(v_mean, v_std), 0.0, self.config.robot_speed))
@@ -95,8 +132,11 @@ class MCTSGameState(GameStateProtocol):
                     if min_tree_dist > max_min_dist:
                         max_min_dist = min_tree_dist
                         best_v, best_omega = v_cand, omega_cand
+
+                # calculate heuristic score
+                score = self._score_robot_action(best_v, best_omega)
     
-        return (best_v, best_omega)
+        return (best_v, best_omega), score
 
 
     def _propagate_unicycle(self, x, y, theta, v, omega, dt, eps=1e-9):
@@ -111,13 +151,13 @@ class MCTSGameState(GameStateProtocol):
 
         return x_new, y_new, theta_new
 
-    def apply_actions(self, actions: List[Action]) -> "GameStateProtocol":
+    def apply_actions(self, actions: List[Tuple[Action, float]]) -> "GameStateProtocol":
         substeps = 2
         substep_dt = self.config.dt / substeps
         positions = self.positions.copy()
         velocities = self.velocities.copy()
         # The robot's continuous action is directly used
-        robot_v, robot_omega = actions[0]
+        robot_v, robot_omega = actions[0][0]
 
         for i in range(substeps):
             # TODO: change human velocities to acommodate multiple potential actions to humans
@@ -309,9 +349,6 @@ class MCTSGameState(GameStateProtocol):
             robot_social_force_generated += float(np.linalg.norm(force))
 
 
-
-
-
         for i in range(n):
             cell = self.config.map.world_to_cell(human_positions[i])
             for oy in range(-2, 3):
@@ -337,7 +374,7 @@ def navigation_rollout(state: MCTSGameState):
     rng = state.config.mcts_config.rng
     while not state.is_terminal():
         action_definitions = [
-            state.sample_action(actor_idx, rng)[0]
+            state.sample_action(actor_idx, rng)
             for actor_idx
             in range(state.config.mcts_config.num_actors)
         ]

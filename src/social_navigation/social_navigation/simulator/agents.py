@@ -218,9 +218,7 @@ class MCTSRobotAI:
         num_agents = positions.shape[0]
 
         # Try to manually define max samples per an actor
-
-        max_actions = (8,) + (1,) * (num_agents - 1)
-
+        max_actions = (32,) + (1,) * (num_agents - 1)
 
 
         mcts_config = MCTSConfig(

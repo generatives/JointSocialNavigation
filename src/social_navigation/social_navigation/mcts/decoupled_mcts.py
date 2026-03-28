@@ -67,7 +67,7 @@ class GameStateProtocol:
     def sample_action(self, actor_idx: int, rng: np.random.Generator, existing_actions: Optional[List[Tuple[Action, float]]] = None) -> Tuple[Action, float]:
             raise NotImplementedError
 
-    def apply_actions(self, actions: List[Action]) -> "GameStateProtocol":
+    def apply_actions(self, actions: List[Tuple[Action, float]]) -> "GameStateProtocol":
         raise NotImplementedError
 
     def is_terminal(self) -> bool:
@@ -101,7 +101,7 @@ class _Node:
         self.children: Dict[Tuple[int, ...], '_Node'] = {}
         self.action_visits: List[List[int]] = [[] for _ in range(self.config.num_actors)]
         self.action_values: List[List[float]] = [[] for _ in range(self.config.num_actors)]
-        self.action_definitions: List[List[Action]] = [[] for _ in range(self.config.num_actors)]
+        self.action_definitions: List[List[Tuple[Action, float]]] = [[] for _ in range(self.config.num_actors)]
 
     def get_child(self, actions: Tuple[int, ...]) -> "_Node":
         if actions in self.children:
@@ -162,10 +162,12 @@ class _Node:
                 sqrt_visits = math.sqrt(self.visits + 1)
                 best_score = -math.inf
                 best_idx = 0
+                score_sum = sum([score for _, score in self.action_definitions[actor_idx]])
                 for action_idx in range(num_actions):
                     visits = action_visits[action_idx]
                     value = action_values[action_idx]
-                    _, probability = self.action_definitions[actor_idx][action_idx]
+                    _, action_score = self.action_definitions[actor_idx][action_idx]
+                    probability = action_score / score_sum
                     q = value / visits if visits > 0 else 0.0
                     u = self.config.c_puct * probability * (sqrt_visits / (1 + visits))
                     score = q + u
@@ -220,7 +222,7 @@ class MCTS:
             trajectory = self._get_expected_trajectory(child)
             state_trajectory.extend([state for node in trajectory for state in [node.parent.state, node.state] if node.parent])
 
-        best_action_definition = [root.action_definitions[actor_idx][action_idx] for actor_idx, action_idx in enumerate(best_actions)]
+        best_action_definition = [root.action_definitions[actor_idx][action_idx][0] for actor_idx, action_idx in enumerate(best_actions)]
         
         return best_action_definition, child_node.state, state_trajectory, None
         
