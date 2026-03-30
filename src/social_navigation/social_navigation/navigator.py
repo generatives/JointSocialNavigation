@@ -1,15 +1,17 @@
 import math
 import random
+import time
 
 import numpy as np
 
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
+from rclpy.duration import Duration
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 import tf2_ros
 
-from geometry_msgs.msg import Point, PointStamped, PoseStamped
+from geometry_msgs.msg import Point, PointStamped, PoseStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from visualization_msgs.msg import Marker, MarkerArray
 from nav_msgs.msg import OccupancyGrid, Path
@@ -46,8 +48,8 @@ class Navigator(Node):
             raise RuntimeError("navigate_to_pose action server not available")
         self._navigate_to_pose_client = client
 
-        timer_period = 0.5  # seconds
-        self.timer = self.create_timer(timer_period, self.timer_callback)
+        timer_period = 1.0  # seconds
+        self.plan_timer = self.create_timer(timer_period, self.plan_timer_callback)
 
         self.goal_subscription = self.create_subscription(
             PointStamped,
@@ -93,6 +95,17 @@ class Navigator(Node):
             '/mcts_local_waypoint',
             10,
         )
+        self.mcts_child_state_marker_publisher = self.create_publisher(
+            Marker,
+            '/mcts_child_state',
+            10,
+        )
+
+        self.cmd_vel_publisher = self.create_publisher(
+            Twist,
+            '/cmd_vel',
+            1,
+        )
         
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -101,7 +114,7 @@ class Navigator(Node):
         self._scenario_map = ScenarioMap.build_empty()
         self._global_plan_cells: list[tuple[int, int]] = []
         self._global_plan_period = 1.0
-        self._local_waypoint_lookahead = 1.5
+        self._local_waypoint_lookahead = 3.0
         self._last_global_plan_time = None
 
         self.get_logger().info('Initialized successfully')
@@ -111,7 +124,7 @@ class Navigator(Node):
         self._goal_point = msg
         self._global_plan_cells = []
         self._last_global_plan_time = None
-        self._plan_intermediate_goal()
+        self._plan()
 
     def human_states_callback(self, msg: Agents):
         num_agents = len(msg.agents)
@@ -185,30 +198,7 @@ class Navigator(Node):
         return human_positions + ema_directions * horizon[:, np.newaxis]
 
     def _get_prediction_dt(self, tree_depth: int, robot_speed: float) -> float:
-        default_dt = 0.5
-        if self._goal_point is None:
-            return default_dt
-
-        try:
-            transform = self.tf_buffer.lookup_transform(
-                "map",
-                "base_link",
-                rclpy.time.Time()
-            )
-        except Exception:
-            return default_dt
-
-        robot_position = np.array(
-            [
-                transform.transform.translation.x,
-                transform.transform.translation.y,
-            ],
-        )
-        goal_position = np.array(
-            [self._goal_point.point.x, self._goal_point.point.y],
-        )
-        distance_to_goal = np.linalg.norm(robot_position - goal_position)
-        return min(0.5, max(0.2, distance_to_goal / robot_speed / tree_depth))
+        return 0.5
 
     def _update_human_goal_markers(self) -> None:
         if self.human_states is None:
@@ -306,11 +296,24 @@ class Navigator(Node):
         self._last_global_plan_time = None
 
     def _lookup_robot_transform(self):
-        return self.tf_buffer.lookup_transform(
-            "map",
-            "base_link",
-            rclpy.time.Time()
-        )
+        try:
+            if not self.tf_buffer.can_transform(
+                "map",
+                "base_link",
+                rclpy.time.Time(),
+                timeout=Duration(seconds=0.2),
+            ):
+                self.get_logger().warn("TF map<-base_link not available yet; skipping this planning cycle.")
+                return None
+
+            return self.tf_buffer.lookup_transform(
+                "map",
+                "base_link",
+                rclpy.time.Time()
+            )
+        except tf2_ros.TransformException as exc:
+            self.get_logger().warn(f"TF lookup failed: {exc}")
+            return None
 
     def _publish_global_path(self, path_cells: list[tuple[int, int]]) -> None:
         path_msg = Path()
@@ -355,11 +358,39 @@ class Navigator(Node):
         marker.color.b = 0.1
         self.local_waypoint_publisher.publish(marker)
 
+    def _publish_child_state_marker(self, goal: np.ndarray | None) -> None:
+        marker = Marker()
+        marker.header.frame_id = "map"
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = "mcts_child_state"
+        marker.id = 0
+
+        if goal is None:
+            marker.action = Marker.DELETE
+            self.mcts_child_state_marker_publisher.publish(marker)
+            return
+
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+        marker.pose.position.x = float(goal[0])
+        marker.pose.position.y = float(goal[1])
+        marker.pose.position.z = 0.25
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = 0.28
+        marker.scale.y = 0.28
+        marker.scale.z = 0.28
+        marker.color.a = 0.95
+        marker.color.r = 0.95
+        marker.color.g = 0.1
+        marker.color.b = 0.1
+        self.mcts_child_state_marker_publisher.publish(marker)
+
     def _update_global_plan(self, robot_position: np.ndarray) -> None:
         if self._goal_point is None:
             self._global_plan_cells = []
             self._publish_global_path([])
             self._publish_local_waypoint(None)
+            self._publish_child_state_marker(None)
             return
 
         now = self.get_clock().now()
@@ -376,6 +407,7 @@ class Navigator(Node):
             self._global_plan_cells = []
             self._publish_global_path([])
             self._publish_local_waypoint(None)
+            self._publish_child_state_marker(None)
             self._last_global_plan_time = now
             return
 
@@ -384,11 +416,13 @@ class Navigator(Node):
         self._publish_global_path(path_cells)
         if not path_cells:
             self._publish_local_waypoint(None)
+            self._publish_child_state_marker(None)
         self._last_global_plan_time = now
 
     def _select_local_waypoint(self, robot_position: np.ndarray) -> np.ndarray | None:
         if not self._global_plan_cells:
             self._publish_local_waypoint(None)
+            self._publish_child_state_marker(None)
             return None
 
         path_points = np.array(
@@ -409,11 +443,15 @@ class Navigator(Node):
         self._publish_local_waypoint(waypoint)
         return waypoint
 
-    def _plan_intermediate_goal(self):
+    def _plan(self):
         if self._goal_point is None:
             return
 
+        plan_start_time = time.perf_counter()
+
         transform = self._lookup_robot_transform()
+        if transform is None:
+            return
 
         robot_position = np.array([transform.transform.translation.x, transform.transform.translation.y])
         goal_position = np.array([self._goal_point.point.x, self._goal_point.point.y])
@@ -425,6 +463,7 @@ class Navigator(Node):
             self._last_global_plan_time = None
             self._publish_global_path([])
             self._publish_local_waypoint(None)
+            self._publish_child_state_marker(None)
             return
 
         self._update_global_plan(robot_position)
@@ -435,7 +474,7 @@ class Navigator(Node):
 
         tree_depth = 6
 
-        robot_speed = 1.7
+        robot_speed = 1.0
         robot_radius = 0.5
         dt = self._get_prediction_dt(tree_depth, robot_speed)
         robot_yaw = quat_to_yaw(
@@ -488,7 +527,7 @@ class Navigator(Node):
             dt=dt,
             robot_radius=robot_radius,
             human_radius=0.5,
-            robot_angular_velocity=np.pi / 4.0,
+            robot_angular_velocity=np.pi / 2.0,
             uncomfortable_distance=1.75,
             map=self._scenario_map,
             starting_distances=starting_distances,
@@ -504,10 +543,31 @@ class Navigator(Node):
             depth=0
         )
 
-        _, child_state, _, _ = mcts.search(root_state, num_simulations=500)
-        intermediate_goal = child_state.positions[0].copy()
+        mcts_start_time = time.perf_counter()
+        best_action, child_state, _, _ = mcts.search(root_state, num_simulations=500)
+        mcts_elapsed_ms = (time.perf_counter() - mcts_start_time) * 1000.0
 
-        self.send_goal(intermediate_goal[0], intermediate_goal[1], 0)
+        intermediate_goal = child_state.positions[0].copy()
+        self._publish_child_state_marker(intermediate_goal)
+
+        linear_velocity, angular_velocity = root_state.get_command_velocities(best_action[0])
+        total_plan_elapsed_ms = (time.perf_counter() - plan_start_time) * 1000.0
+        self.get_logger().info(
+            "Planning timing: total=%.1f ms, mcts.search=%.1f ms, cmd_vel=(%.3f, %.3f)"
+            % (total_plan_elapsed_ms, mcts_elapsed_ms, linear_velocity, angular_velocity)
+        )
+        self.send_cmd_vel(linear_velocity, angular_velocity)
+
+
+    def send_cmd_vel(self, v: float, w: float):
+        cmd_vel_msg = Twist()
+        cmd_vel_msg.linear.x = float(v)
+        cmd_vel_msg.linear.y = 0.0
+        cmd_vel_msg.linear.z = 0.0
+        cmd_vel_msg.angular.x = 0.0
+        cmd_vel_msg.angular.y = 0.0
+        cmd_vel_msg.angular.z = float(w)
+        self.cmd_vel_publisher.publish(cmd_vel_msg)
 
     def send_goal(self, x: float, y: float, yaw: float, frame_id: str = "map"):
         goal_msg = NavigateToPose.Goal()
@@ -561,8 +621,8 @@ class Navigator(Node):
             self.get_logger().warn(f"Navigation finished with status={status}")
 
 
-    def timer_callback(self):
-        self._plan_intermediate_goal()
+    def plan_timer_callback(self):
+        self._plan()
 
 
 def main(args=None):
