@@ -176,8 +176,8 @@ class MCTSRobotAI:
     def _plan_intermediate_goal(self, robot: Robot) -> np.ndarray:
         num_humans = 5
         tree_depth = 6
-        robot_speed = MAX_ROBOT_SPEED * 0.9
-        robot_omega = MAX_ROBOT_OMEGA * 0.9
+        robot_speed = MAX_ROBOT_SPEED * 0.9 # intentionally slow down>?
+        robot_omega = MAX_ROBOT_OMEGA * 0.9 # 
 
         if self.manual_goal is None:
             return robot.position.copy()
@@ -185,8 +185,9 @@ class MCTSRobotAI:
         robot_goal = self.scenario.cell_to_world(self.manual_goal)
         final_goal_dist = np.linalg.norm(robot.position - robot_goal)
         time_to_goal = final_goal_dist / robot_speed
-        dt = time_to_goal / tree_depth
-        dt = min(0.5, max(0.2, dt))
+        #dt = time_to_goal / tree_depth
+        #dt = min(0.5, max(0.2, dt))
+        dt = 0.5
 
         active_idxs = np.flatnonzero(self.crowd.active)
         if active_idxs.size == 0:
@@ -215,12 +216,21 @@ class MCTSRobotAI:
         starting_distances = np.linalg.norm(goal_positions - positions, axis=1)
 
         num_agents = positions.shape[0]
-        num_actions = [4] + [1] * (num_agents - 1)
+
+        # Try to manually define max samples per an actor
+        max_actions = (32,) + (1,) * (num_agents - 1)
+
+
         mcts_config = MCTSConfig(
             num_actors=num_agents, 
-            max_actions=num_actions, 
-            rng=random.Random(random.randint(0, 2**31 - 1)),
-            max_depth=tree_depth)
+            rng=np.random.default_rng(), # better generator
+            max_actions=max_actions,
+            max_depth=tree_depth,
+            c_puct=1.4,
+            pw_c=2.0,       # pw constant
+            pw_alpha=0.3   # pw exponent
+        )
+
         state_config = MCTSGameStateConfig(
             mcts_config=mcts_config,
             robot_speed=robot_speed,
@@ -242,8 +252,12 @@ class MCTSRobotAI:
             config=state_config,
             depth=0
         )
+        #print(f"Root state {root_state.agent_goal_positions}")
+        actions, _, state_trajectory, _ = mcts.search(root_state, num_simulations=5000)
+        if actions is None or state_trajectory is None:
+            actions = [(0.0, 0.0)]
+            state_trajectory = []
 
-        actions, child_state, state_trajectory, _ = mcts.search(root_state, num_simulations=100)
         self.planned_robot_trajectory = [state.positions[0].copy() for state in state_trajectory]
         self.planned_human_trajectories = {
             human_index: [state.positions[actor_index+1].copy() for state in state_trajectory]
@@ -254,7 +268,7 @@ class MCTSRobotAI:
             for actor_index, human_index in enumerate(closest_humans)
         }
 
-        linear_velocity, angular_velocity = root_state.get_command_velocities(actions[0])
+        linear_velocity, angular_velocity = actions[0]
 
         return linear_velocity, angular_velocity, dt
 
