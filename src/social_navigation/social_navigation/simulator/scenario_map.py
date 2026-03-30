@@ -7,6 +7,14 @@ import numpy as np
 
 from .constants import FREE, WALL
 
+def inflate_grid(grid, cells):
+    new_grid = np.zeros_like(grid)
+    x_range, y_range = new_grid.shape
+    for x in range(x_range):
+        for y in range(y_range):
+            if np.any(grid[x-cells:x+cells, y-cells:y+cells]):
+                new_grid[x, y] = 1
+    return new_grid
 
 @dataclass(slots=True)
 class ScenarioMap:

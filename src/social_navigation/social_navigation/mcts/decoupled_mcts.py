@@ -25,7 +25,7 @@ class MCTSConfig:
     
     # Progressive Widening parameters
     pw_c: float = 2.0 
-    pw_alpha: float = 0.6
+    pw_alpha: float = 0.3
 
     # Fields generated in __post_init__
     child_index_steps: Tuple[int, ...] = field(init=False)
@@ -204,6 +204,7 @@ class MCTS:
     ) -> Tuple[List[Action], GameStateProtocol, List[GameStateProtocol], None]:
         
         if root_state.is_terminal():
+            print("Root state is terminal")
             return None, None, None, None
 
         root = _Node(root_state, self.config, None, None)

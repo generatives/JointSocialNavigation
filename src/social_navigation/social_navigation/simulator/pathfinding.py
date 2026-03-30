@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import heapq
 import math
+from typing import List
 
 import numpy as np
 
@@ -55,3 +56,20 @@ def a_star(grid: np.ndarray, start: tuple[int, int], goal: tuple[int, int]) -> l
                 heapq.heappush(open_heap, (f, nxt))
 
     return []
+
+def simplify_path(path: List[tuple[int, int]]) -> List[tuple[int, int]]:
+    if len(path) <= 2:
+        return path
+    line_start = path[0]
+    line_end = path[1]
+    simple_path = [line_start]
+    for idx in range(2, len(path)):
+        nxt = path[idx]
+        if line_start[0] != nxt[0] and line_start[1] != nxt[1]:
+            simple_path.append(line_end)
+            line_start = line_end
+            line_end = nxt
+        else:
+            line_end = nxt
+    simple_path.append(path[-1])
+    return simple_path

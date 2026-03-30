@@ -97,7 +97,7 @@ class MCTSGameState(GameStateProtocol):
         """Samples a new action for the actor, ensuring diversity within the pool and against existing expansions."""
         
         # To modify later  based on specific heuristics 
-        v_mean, v_std =  0.9 * self.config.robot_speed, 0.5
+        v_mean, v_std =  0.5 * self.config.robot_speed, 0.5
         omega_mean, omega_std = 0.0, self.config.robot_angular_velocity * 0.5
 
         # We must normalize the axes because v and omega have different maximum scales
@@ -110,7 +110,7 @@ class MCTSGameState(GameStateProtocol):
             # Robot (Actor 0)
             if not existing_actions:
                 # First action has nothing to be diverse against
-                best_v = float(np.clip(rng.normal(v_mean, v_std), 0.0, self.config.robot_speed))
+                best_v = float(np.clip(rng.normal(v_mean, v_std), -self.config.robot_speed, self.config.robot_speed))
                 best_omega = float(np.clip(rng.normal(omega_mean, omega_std), -self.config.robot_angular_velocity, self.config.robot_angular_velocity))
             else:
                 max_min_dist = -1.0
@@ -202,7 +202,10 @@ class MCTSGameState(GameStateProtocol):
         reached_depth = self.depth >= self.config.mcts_config.max_depth
         goal_distance = np.linalg.norm(self.agent_goal_positions[0] - self.positions[0])
         reached_goal = goal_distance < 0.25
-        return is_invalid or reached_depth or reached_goal
+        terminal = is_invalid or reached_depth or reached_goal
+        if self.depth == 0 and terminal:
+            print(f"Root is terminal on: is_invalid {is_invalid}, reached_depth {reached_depth}, reached_goal {reached_goal}")
+        return terminal
     
     def _uncomfortable_distance(self) -> np.ndarray:
         robot_position = self.positions[0, :]
@@ -269,7 +272,7 @@ class MCTSGameState(GameStateProtocol):
             value_accumulator += 1.0 * self._goal_distance()
         
         invalid_state_mask, _ = self._get_invalid_state()
-        value_accumulator[invalid_state_mask] = -5.0 * self.config.starting_distances[0]
+        value_accumulator[invalid_state_mask] = -1.0 * self.config.starting_distances[0]
 
         return value_accumulator
 

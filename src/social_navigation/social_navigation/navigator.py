@@ -18,8 +18,8 @@ from nav_msgs.msg import OccupancyGrid, Path
 
 from hunav_msgs.msg import Agents, Agent
 from social_navigation.mcts.decoupled_mcts import MCTS, MCTSConfig
-from social_navigation.simulator.pathfinding import a_star
-from social_navigation.simulator.scenario_map import ScenarioMap
+from social_navigation.simulator.pathfinding import a_star, simplify_path
+from social_navigation.simulator.scenario_map import ScenarioMap, inflate_grid
 from social_navigation.simulator.mcts_game_state import MCTSGameState, MCTSGameStateConfig, navigation_rollout
 
 
@@ -48,7 +48,7 @@ class Navigator(Node):
             raise RuntimeError("navigate_to_pose action server not available")
         self._navigate_to_pose_client = client
 
-        timer_period = 0.5  # seconds
+        timer_period = 3  # seconds
         self.plan_timer = self.create_timer(timer_period, self.plan_timer_callback)
 
         self.goal_subscription = self.create_subscription(
@@ -114,7 +114,7 @@ class Navigator(Node):
         self._scenario_map = ScenarioMap.build_empty()
         self._global_plan_cells: list[tuple[int, int]] = []
         self._global_plan_period = 1.0
-        self._local_waypoint_lookahead = 3.0
+        self._local_waypoint_lookahead = 2.0
         self._last_global_plan_time = None
 
         self.get_logger().info('Initialized successfully')
@@ -411,7 +411,9 @@ class Navigator(Node):
             self._last_global_plan_time = now
             return
 
-        path_cells = a_star(self._scenario_map.grid, start_cell, goal_cell)
+        inflated_grid = inflate_grid(self._scenario_map.grid, int(60 / 5))
+        path_cells = a_star(inflated_grid, start_cell, goal_cell)
+        path_cells = simplify_path(path_cells)
         self._global_plan_cells = path_cells
         self._publish_global_path(path_cells)
         if not path_cells:
@@ -431,14 +433,24 @@ class Navigator(Node):
         distances = np.linalg.norm(path_points - robot_position, axis=1)
         nearest_idx = np.argmin(distances)
 
-        waypoint = path_points[-1]
-        travelled = 0.0
-        for idx in range(nearest_idx, len(path_points) - 1):
-            segment = np.linalg.norm(path_points[idx + 1] - path_points[idx])
-            travelled += segment
-            waypoint = path_points[idx + 1]
-            if travelled >= self._local_waypoint_lookahead:
+        waypoint = path_points[0]
+        origin = robot_position
+        for idx in range(0, len(path_points)):
+            candidate_waypoint = path_points[idx]
+            diff = abs(candidate_waypoint - origin)
+            threshold = 0.3
+            if np.all(diff > threshold):
                 break
+            waypoint = candidate_waypoint
+
+        #waypoint = path_points[-1]
+        #travelled = 0.0
+        #for idx in range(nearest_idx, len(path_points) - 1):
+        #    segment = np.linalg.norm(path_points[idx + 1] - path_points[idx])
+        #    travelled += segment
+        #    waypoint = path_points[idx + 1]
+        #    if travelled >= self._local_waypoint_lookahead:
+        #        break
 
         self._publish_local_waypoint(waypoint)
         return waypoint
@@ -469,12 +481,15 @@ class Navigator(Node):
             self.send_cmd_vel(0.0, 0.0)
             return
 
+        astar_start_time = time.perf_counter()
         self._update_global_plan(robot_position)
+        astar_elapsed_ms = (time.perf_counter() - astar_start_time) * 1000.0
         local_waypoint = self._select_local_waypoint(robot_position)
         if local_waypoint is None:
             self.get_logger().warn('No global A* path available; skipping local MCTS plan.')
             self.send_cmd_vel(0.0, 0.0)
             return
+        
 
         tree_depth = 6
 
@@ -548,7 +563,7 @@ class Navigator(Node):
         )
 
         mcts_start_time = time.perf_counter()
-        best_action, child_state, _, _ = mcts.search(root_state, num_simulations=1000)
+        best_action, child_state, _, _ = mcts.search(root_state, num_simulations=500)
         mcts_elapsed_ms = (time.perf_counter() - mcts_start_time) * 1000.0
         
         if best_action is not None and child_state is not None:
@@ -558,11 +573,12 @@ class Navigator(Node):
             linear_velocity, angular_velocity = best_action[0]
             total_plan_elapsed_ms = (time.perf_counter() - plan_start_time) * 1000.0
             self.get_logger().info(
-                "Planning timing: total=%.1f ms, mcts.search=%.1f ms, cmd_vel=(%.3f, %.3f)"
-                % (total_plan_elapsed_ms, mcts_elapsed_ms, linear_velocity, angular_velocity)
+                "Planning timing: total=%.1f ms, astar=%.1f ms, mcts.search=%.1f ms, cmd_vel=(%.3f, %.3f)"
+                % (total_plan_elapsed_ms, astar_elapsed_ms, mcts_elapsed_ms, linear_velocity, angular_velocity)
             )
             self.send_cmd_vel(linear_velocity, angular_velocity)
         else:
+            self.get_logger().warn('MCTS returned no action.')
             self.send_cmd_vel(0.0, 0.0)
 
 
