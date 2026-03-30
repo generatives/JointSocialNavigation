@@ -444,7 +444,7 @@ class Navigator(Node):
         return waypoint
 
     def _plan(self):
-        self.send_cmd_vel(0.0, 0.0)
+        #self.send_cmd_vel(0.0, 0.0)
 
         if self._goal_point is None:
             return
@@ -466,12 +466,14 @@ class Navigator(Node):
             self._publish_global_path([])
             self._publish_local_waypoint(None)
             self._publish_child_state_marker(None)
+            self.send_cmd_vel(0.0, 0.0)
             return
 
         self._update_global_plan(robot_position)
         local_waypoint = self._select_local_waypoint(robot_position)
         if local_waypoint is None:
             self.get_logger().warn('No global A* path available; skipping local MCTS plan.')
+            self.send_cmd_vel(0.0, 0.0)
             return
 
         tree_depth = 6
@@ -560,6 +562,8 @@ class Navigator(Node):
                 % (total_plan_elapsed_ms, mcts_elapsed_ms, linear_velocity, angular_velocity)
             )
             self.send_cmd_vel(linear_velocity, angular_velocity)
+        else:
+            self.send_cmd_vel(0.0, 0.0)
 
 
     def send_cmd_vel(self, v: float, w: float):
