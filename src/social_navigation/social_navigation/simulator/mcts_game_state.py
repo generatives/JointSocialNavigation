@@ -269,7 +269,7 @@ class MCTSGameState(GameStateProtocol):
             value_accumulator += 1.0 * self._goal_distance()
         
         invalid_state_mask, _ = self._get_invalid_state()
-        value_accumulator[invalid_state_mask] = -self.config.starting_distances[0]
+        value_accumulator[invalid_state_mask] = -5.0 * self.config.starting_distances[0]
 
         return value_accumulator
 

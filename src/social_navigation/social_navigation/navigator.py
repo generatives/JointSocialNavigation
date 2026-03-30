@@ -48,7 +48,7 @@ class Navigator(Node):
             raise RuntimeError("navigate_to_pose action server not available")
         self._navigate_to_pose_client = client
 
-        timer_period = 1.0  # seconds
+        timer_period = 0.5  # seconds
         self.plan_timer = self.create_timer(timer_period, self.plan_timer_callback)
 
         self.goal_subscription = self.create_subscription(
@@ -444,6 +444,8 @@ class Navigator(Node):
         return waypoint
 
     def _plan(self):
+        self.send_cmd_vel(0.0, 0.0)
+
         if self._goal_point is None:
             return
 
@@ -517,7 +519,7 @@ class Navigator(Node):
             num_actors=num_agents,
             max_actions=num_actions,
             max_depth=tree_depth,
-            rng=random.Random()
+            rng=np.random.default_rng()
         )
         starting_distances = np.linalg.norm(goal_positions - positions, axis=1)
 
@@ -544,19 +546,20 @@ class Navigator(Node):
         )
 
         mcts_start_time = time.perf_counter()
-        best_action, child_state, _, _ = mcts.search(root_state, num_simulations=500)
+        best_action, child_state, _, _ = mcts.search(root_state, num_simulations=1000)
         mcts_elapsed_ms = (time.perf_counter() - mcts_start_time) * 1000.0
+        
+        if best_action is not None and child_state is not None:
+            intermediate_goal = child_state.positions[0].copy()
+            self._publish_child_state_marker(intermediate_goal)
 
-        intermediate_goal = child_state.positions[0].copy()
-        self._publish_child_state_marker(intermediate_goal)
-
-        linear_velocity, angular_velocity = root_state.get_command_velocities(best_action[0])
-        total_plan_elapsed_ms = (time.perf_counter() - plan_start_time) * 1000.0
-        self.get_logger().info(
-            "Planning timing: total=%.1f ms, mcts.search=%.1f ms, cmd_vel=(%.3f, %.3f)"
-            % (total_plan_elapsed_ms, mcts_elapsed_ms, linear_velocity, angular_velocity)
-        )
-        self.send_cmd_vel(linear_velocity, angular_velocity)
+            linear_velocity, angular_velocity = best_action[0]
+            total_plan_elapsed_ms = (time.perf_counter() - plan_start_time) * 1000.0
+            self.get_logger().info(
+                "Planning timing: total=%.1f ms, mcts.search=%.1f ms, cmd_vel=(%.3f, %.3f)"
+                % (total_plan_elapsed_ms, mcts_elapsed_ms, linear_velocity, angular_velocity)
+            )
+            self.send_cmd_vel(linear_velocity, angular_velocity)
 
 
     def send_cmd_vel(self, v: float, w: float):
