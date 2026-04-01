@@ -22,6 +22,8 @@ from social_navigation.simulator.pathfinding import a_star, simplify_path
 from social_navigation.simulator.scenario_map import ScenarioMap, inflate_grid
 from social_navigation.simulator.mcts_game_state import MCTSGameState, MCTSGameStateConfig, navigation_rollout
 
+# Time is running at 1/10 speed in the simulation and we need to account for that in some logic
+TIME_FACTOR = 10.0
 
 def yaw_to_quat_wz(yaw: float):
     """
@@ -48,8 +50,12 @@ class Navigator(Node):
             raise RuntimeError("navigate_to_pose action server not available")
         self._navigate_to_pose_client = client
 
-        timer_period = 3  # seconds
-        self.plan_timer = self.create_timer(timer_period, self.plan_timer_callback)
+        plan_dt = self._get_prediction_dt()
+        plan_period = plan_dt * TIME_FACTOR
+        self.plan_timer = self.create_timer(plan_period, self.plan_timer_callback)
+
+        execute_period = plan_period / 10.0
+        self.execute_plan_timer = self.create_timer(execute_period, self.execute_mcts_plan_callback)
 
         self.goal_subscription = self.create_subscription(
             PointStamped,
@@ -117,14 +123,28 @@ class Navigator(Node):
         self._local_waypoint_lookahead = 2.0
         self._last_global_plan_time = None
 
+        self._mcts_plan_start_time = None
+        self._mcts_action_plan = None
+
         self.get_logger().info('Initialized successfully')
+
+    def execute_mcts_plan_callback(self):
+        if self._mcts_plan_start_time is not None and self._mcts_action_plan is not None:
+            dt = self._get_prediction_dt() * TIME_FACTOR
+            current_time = time.time()
+            action_idx = int((current_time - self._mcts_plan_start_time) / dt)
+            if action_idx >= len(self._mcts_action_plan):
+                self.send_cmd_vel(0.0, 0.0)
+            else:
+                lin_vel, ang_vel = self._mcts_action_plan[action_idx][0]
+                self.send_cmd_vel(lin_vel, ang_vel)
 
     def clicked_point_callback(self, msg: PointStamped):
         self.get_logger().info('I heard: "%s"' % msg)
         self._goal_point = msg
         self._global_plan_cells = []
         self._last_global_plan_time = None
-        self._plan()
+        self._plan(True)
 
     def human_states_callback(self, msg: Agents):
         num_agents = len(msg.agents)
@@ -197,7 +217,7 @@ class Navigator(Node):
         ema_directions = np.where(moving, ema_velocities / safe_ema_speeds, 0.0)
         return human_positions + ema_directions * horizon[:, np.newaxis]
 
-    def _get_prediction_dt(self, tree_depth: int, robot_speed: float) -> float:
+    def _get_prediction_dt(self, tree_depth: int = None, robot_speed: float = None) -> float:
         return 0.5
 
     def _update_human_goal_markers(self) -> None:
@@ -430,32 +450,36 @@ class Navigator(Node):
         path_points = np.array(
             [self._scenario_map.cell_to_world(cell) for cell in self._global_plan_cells],
         )
+
         distances = np.linalg.norm(path_points - robot_position, axis=1)
         nearest_idx = np.argmin(distances)
 
-        waypoint = path_points[0]
-        origin = robot_position
-        for idx in range(0, len(path_points)):
-            candidate_waypoint = path_points[idx]
-            diff = abs(candidate_waypoint - origin)
-            threshold = 0.3
-            if np.all(diff > threshold):
-                break
-            waypoint = candidate_waypoint
-
-        #waypoint = path_points[-1]
-        #travelled = 0.0
-        #for idx in range(nearest_idx, len(path_points) - 1):
-        #    segment = np.linalg.norm(path_points[idx + 1] - path_points[idx])
-        #    travelled += segment
-        #    waypoint = path_points[idx + 1]
-        #    if travelled >= self._local_waypoint_lookahead:
+        #waypoint = path_points[0]
+        #origin = robot_position
+        #for idx in range(0, len(path_points)):
+        #    candidate_waypoint = path_points[idx]
+        #    diff = abs(candidate_waypoint - origin)
+        #    threshold = 0.3
+        #    if np.all(diff > threshold):
         #        break
+        #    waypoint = candidate_waypoint
+
+        waypoint = path_points[-1]
+        travelled = 0.0
+        for idx in range(nearest_idx, len(path_points) - 1):
+            current_point = path_points[idx]
+            next_point = path_points[idx + 1]
+            segment = np.linalg.norm(next_point - current_point)
+            travelled += segment
+            if travelled >= self._local_waypoint_lookahead:
+                break
+            waypoint = next_point
+
 
         self._publish_local_waypoint(waypoint)
         return waypoint
 
-    def _plan(self):
+    def _plan(self, do_global_plan: bool = False):
         #self.send_cmd_vel(0.0, 0.0)
 
         if self._goal_point is None:
@@ -482,7 +506,8 @@ class Navigator(Node):
             return
 
         astar_start_time = time.perf_counter()
-        self._update_global_plan(robot_position)
+        if(do_global_plan):
+            self._update_global_plan(robot_position)
         astar_elapsed_ms = (time.perf_counter() - astar_start_time) * 1000.0
         local_waypoint = self._select_local_waypoint(robot_position)
         if local_waypoint is None:
@@ -563,20 +588,21 @@ class Navigator(Node):
         )
 
         mcts_start_time = time.perf_counter()
-        best_action, child_state, _, _ = mcts.search(root_state, num_simulations=500)
+        actions, states, _, _ = mcts.search(root_state, num_simulations=500)
         mcts_elapsed_ms = (time.perf_counter() - mcts_start_time) * 1000.0
         
-        if best_action is not None and child_state is not None:
-            intermediate_goal = child_state.positions[0].copy()
+        if actions is not None and states is not None:
+            intermediate_goal = states[0].positions[0].copy()
             self._publish_child_state_marker(intermediate_goal)
 
-            linear_velocity, angular_velocity = best_action[0]
+            self._mcts_action_plan = actions
+            self._mcts_plan_start_time = time.time()
+
             total_plan_elapsed_ms = (time.perf_counter() - plan_start_time) * 1000.0
             self.get_logger().info(
-                "Planning timing: total=%.1f ms, astar=%.1f ms, mcts.search=%.1f ms, cmd_vel=(%.3f, %.3f)"
-                % (total_plan_elapsed_ms, astar_elapsed_ms, mcts_elapsed_ms, linear_velocity, angular_velocity)
+                "Planning timing: total=%.1f ms, astar=%.1f ms, mcts.search=%.1f ms"
+                % (total_plan_elapsed_ms, astar_elapsed_ms, mcts_elapsed_ms)
             )
-            self.send_cmd_vel(linear_velocity, angular_velocity)
         else:
             self.get_logger().warn('MCTS returned no action.')
             self.send_cmd_vel(0.0, 0.0)

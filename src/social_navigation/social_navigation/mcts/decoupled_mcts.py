@@ -212,20 +212,23 @@ class MCTS:
         for _ in range(num_simulations):
             self._search_iteration(root)
         
-        best_actions = self._most_visited_actions(root)
-        #print(f"Best actions at {root_state}, : {best_actions}")
-        #print(f"Root of children {root.children}")
-
-        child_node = root.get_child(tuple(best_actions))
-        
         state_trajectory = []
         for child in sorted(root.children.values(), key=lambda n: n.visits, reverse=True)[:5]:
             trajectory = self._get_expected_trajectory(child)
             state_trajectory.extend([state for node in trajectory for state in [node.parent.state, node.state] if node.parent])
 
-        best_action_definition = [root.action_definitions[actor_idx][action_idx][0] for actor_idx, action_idx in enumerate(best_actions)]
+        next_node = root
+        actions = []
+        states = []
+        while next_node.visits > 0 and len(next_node.children) > 0:
+            best_actions = self._most_visited_actions(next_node)
+            action_definition = [next_node.action_definitions[actor_idx][action_idx][0] for actor_idx, action_idx in enumerate(best_actions)]
+            actions.append(action_definition)
+            states.append(next_node.state)
+
+            next_node = next_node.get_child(tuple(best_actions))
         
-        return best_action_definition, child_node.state, state_trajectory, None
+        return actions, states, state_trajectory, None
         
     def _search_iteration(self, root: _Node):
         node = root
