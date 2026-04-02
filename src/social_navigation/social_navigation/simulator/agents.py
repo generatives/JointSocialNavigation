@@ -190,8 +190,6 @@ class MCTSRobotAI:
         dt = 0.5
 
         active_idxs = np.flatnonzero(self.crowd.active)
-        if active_idxs.size == 0:
-            return self.scenario.cell_to_world(self.manual_goal)
 
         distances = np.linalg.norm(self.crowd.positions[active_idxs] - robot.position, axis=1)
         sorted_active = active_idxs[np.argsort(distances)]
@@ -218,7 +216,7 @@ class MCTSRobotAI:
         num_agents = positions.shape[0]
 
         # Try to manually define max samples per an actor
-        max_actions = (32,) + (1,) * (num_agents - 1)
+        max_actions = (8,) + (1,) * (num_agents - 1)
 
 
         mcts_config = MCTSConfig(
@@ -226,9 +224,9 @@ class MCTSRobotAI:
             rng=np.random.default_rng(), # better generator
             max_actions=max_actions,
             max_depth=tree_depth,
-            c_puct=1.4,
-            pw_c=2.0,       # pw constant
-            pw_alpha=0.3   # pw exponent
+            c_puct=1.4 * 2.0,
+            pw_c=2.0,
+            pw_alpha=0.3
         )
 
         state_config = MCTSGameStateConfig(
@@ -253,9 +251,9 @@ class MCTSRobotAI:
             depth=0
         )
         #print(f"Root state {root_state.agent_goal_positions}")
-        actions, _, state_trajectory, _ = mcts.search(root_state, num_simulations=5000)
+        actions, _, state_trajectory, _ = mcts.search(root_state, num_simulations=500)
         if actions is None or state_trajectory is None:
-            actions = [(0.0, 0.0)]
+            actions = [[(0.0, 0.0)]]
             state_trajectory = []
 
         self.planned_robot_trajectory = [state.positions[0].copy() for state in state_trajectory]
@@ -268,7 +266,7 @@ class MCTSRobotAI:
             for actor_index, human_index in enumerate(closest_humans)
         }
 
-        linear_velocity, angular_velocity = actions[0]
+        linear_velocity, angular_velocity = actions[0][0]
 
         return linear_velocity, angular_velocity, dt
 
@@ -317,7 +315,7 @@ class Crowd:
         self.paths: list[list[tuple[int, int]]] = [[] for _ in range(max_humans)]
         self.path_ptr = np.zeros(max_humans, dtype=np.int32)
         self.replan_timer = np.random.uniform(0.2, 1.1, size=max_humans).astype(np.float32)
-        self.spawn_rate_per_sec = 0.2
+        self.spawn_rate_per_sec = 0.3
         self.spawn_accumulator = 0.0
         self.velocity_ema = np.zeros((max_humans, 2), dtype=np.float32)
         self.ema_alpha = 0.02 # exponential moving average

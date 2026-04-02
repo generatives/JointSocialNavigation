@@ -14,7 +14,7 @@ import tf2_ros
 from geometry_msgs.msg import Point, PointStamped, PoseStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from visualization_msgs.msg import Marker, MarkerArray
-from nav_msgs.msg import OccupancyGrid, Path
+from nav_msgs.msg import OccupancyGrid, Odometry, Path
 
 from hunav_msgs.msg import Agents, Agent
 from social_navigation.mcts.decoupled_mcts import MCTS, MCTSConfig
@@ -75,6 +75,12 @@ class Navigator(Node):
             self.map_callback,
             map_qos,
         )
+
+        self.odom_subscription = self.create_subscription(
+            Odometry,
+            '/odom',
+            self.odom_callback
+        )
         
         self.human_states: np.ndarray | None = None
         self.human_ids: list[int] = []
@@ -127,6 +133,9 @@ class Navigator(Node):
         self._mcts_action_plan = None
 
         self.get_logger().info('Initialized successfully')
+
+    def odom_callback(self, msg):
+        print(f"")
 
     def execute_mcts_plan_callback(self):
         if self._mcts_plan_start_time is not None and self._mcts_action_plan is not None:
@@ -506,7 +515,7 @@ class Navigator(Node):
             return
 
         astar_start_time = time.perf_counter()
-        if(do_global_plan):
+        if do_global_plan or not self._global_plan_cells:
             self._update_global_plan(robot_position)
         astar_elapsed_ms = (time.perf_counter() - astar_start_time) * 1000.0
         local_waypoint = self._select_local_waypoint(robot_position)
@@ -556,12 +565,14 @@ class Navigator(Node):
             goal_positions = np.vstack((goal_positions, human_goals))
 
         num_agents = positions.shape[0]
-        num_actions = [4] + [1] * (num_agents - 1)
+        num_actions = [6] + [1] * (num_agents - 1)
         mcts_config = MCTSConfig(
             num_actors=num_agents,
             max_actions=num_actions,
             max_depth=tree_depth,
-            rng=np.random.default_rng()
+            rng=np.random.default_rng(),
+            pw_c=1.0,
+            pw_alpha=0.35
         )
         starting_distances = np.linalg.norm(goal_positions - positions, axis=1)
 
@@ -592,7 +603,7 @@ class Navigator(Node):
         mcts_elapsed_ms = (time.perf_counter() - mcts_start_time) * 1000.0
         
         if actions is not None and states is not None:
-            intermediate_goal = states[0].positions[0].copy()
+            intermediate_goal = states[0].positions[0].copy()  
             self._publish_child_state_marker(intermediate_goal)
 
             self._mcts_action_plan = actions

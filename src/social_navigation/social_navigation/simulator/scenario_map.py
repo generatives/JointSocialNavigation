@@ -85,7 +85,7 @@ class ScenarioMap:
         height, width = 18, 18
         grid = np.zeros((height, width), dtype=np.int8)
         grid[:, :] = WALL
-        grid[8:12, :] = FREE
+        grid[6:14, :] = FREE
 
         human_starts = [(11, 8), (11, 11)]
         human_ends = [(0, 8)]
@@ -144,6 +144,12 @@ class ScenarioMap:
     def is_free(self, cell: tuple[int, int]) -> bool:
         x, y = cell
         return self.in_bounds(cell) and self.grid[y, x] == FREE
+    
+    def wall_cells_in_range(self, start: tuple[int, int], end: tuple[int, int]) -> int:
+        sx, sy = start
+        ex, ey = end
+
+        return np.count_nonzero(self.grid[sy:ey, sx:ex])
     
     def position_is_free(self, position: np.ndarray) -> bool:
         cell = self.world_to_cell(position)

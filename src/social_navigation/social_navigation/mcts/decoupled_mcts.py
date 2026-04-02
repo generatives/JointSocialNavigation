@@ -136,6 +136,35 @@ class _Node:
             in zip(action_counts, target_action_counts)
         ]
         return all(actor_is_fully_expanded)
+    
+    def print_robot_scores(self):
+        actor_idx = 0
+        action_visits = self.action_visits[actor_idx]
+        action_values = self.action_values[actor_idx]
+        num_actions = len(action_visits)
+        sqrt_visits = math.sqrt(self.visits + 1)
+        
+        q_values = [
+            action_values[action_idx] / action_visits[action_idx] if action_visits[action_idx] > 0 else 0.0
+            for action_idx
+            in range(num_actions)
+        ]
+        min_q = min(q_values)
+        max_q = max(q_values)
+        scaled_q_values = [(q - min_q) / (max_q - min_q + 1e-8) for q in q_values]
+        
+        score_sum = sum([score for _, score in self.action_definitions[actor_idx]])
+        scores = []
+        for action_idx in range(num_actions):
+            visits = action_visits[action_idx]
+            _, action_score = self.action_definitions[actor_idx][action_idx]
+            probability = action_score / score_sum
+            q = scaled_q_values[action_idx]
+            u = self.config.c_puct * probability * (sqrt_visits / (1 + visits))
+            score = q + u
+            scores.append((q, u, score))
+            
+        print(scores)
 
     def select_or_expand(self) -> "_Node":
         #print(f"Current node {self.state}")
@@ -163,12 +192,21 @@ class _Node:
                 best_score = -math.inf
                 best_idx = 0
                 score_sum = sum([score for _, score in self.action_definitions[actor_idx]])
+
+                q_values = [
+                    action_values[action_idx] / action_visits[action_idx] if action_visits[action_idx] > 0 else 0.0
+                    for action_idx
+                    in range(num_actions)
+                ]
+                min_q = min(q_values)
+                max_q = max(q_values)
+                scaled_q_values = [(q - min_q) / (max_q - min_q + 1e-8) for q in q_values]
+                
                 for action_idx in range(num_actions):
                     visits = action_visits[action_idx]
-                    value = action_values[action_idx]
                     _, action_score = self.action_definitions[actor_idx][action_idx]
                     probability = action_score / score_sum
-                    q = value / visits if visits > 0 else 0.0
+                    q = scaled_q_values[action_idx]
                     u = self.config.c_puct * probability * (sqrt_visits / (1 + visits))
                     score = q + u
                     
@@ -209,8 +247,12 @@ class MCTS:
 
         root = _Node(root_state, self.config, None, None)
 
-        for _ in range(num_simulations):
+        for i in range(num_simulations):
             self._search_iteration(root)
+            if i % 100 == 0:
+                print(f"Iteration: {i}")
+                #root.print_robot_scores()
+                print(root.action_visits[0])
         
         state_trajectory = []
         for child in sorted(root.children.values(), key=lambda n: n.visits, reverse=True)[:5]:
@@ -220,19 +262,27 @@ class MCTS:
         next_node = root
         actions = []
         states = []
+        robot_action_percentages = []
         while next_node.visits > 0 and len(next_node.children) > 0:
             best_actions = self._most_visited_actions(next_node)
             action_definition = [next_node.action_definitions[actor_idx][action_idx][0] for actor_idx, action_idx in enumerate(best_actions)]
             actions.append(action_definition)
             states.append(next_node.state)
 
+            robot_action_percentages.append(next_node.action_visits[0][best_actions[0]] / next_node.visits)
+
             next_node = next_node.get_child(tuple(best_actions))
+
+        print(robot_action_percentages)
         
         return actions, states, state_trajectory, None
         
     def _search_iteration(self, root: _Node):
         node = root
         depth = 0
+
+        #if not root.is_fully_expanded_pw():
+        #    print("Expanding Root")
 
         # Traverse tree
         while node.is_fully_expanded_pw() and not node.state.is_terminal() and depth < self.config.max_depth:

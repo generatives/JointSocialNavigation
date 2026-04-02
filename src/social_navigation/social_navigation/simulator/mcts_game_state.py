@@ -7,6 +7,8 @@ from social_navigation.mcts.decoupled_mcts import Action, GameStateProtocol, MCT
 from social_navigation.simulator.constants import WALL
 from social_navigation.simulator.scenario_map import ScenarioMap
 
+SAMPLE_DISTANT_ACTIONS = True
+
 @dataclass(frozen=True, slots=True)
 class MCTSGameStateConfig:
     mcts_config: MCTSConfig
@@ -108,7 +110,7 @@ class MCTSGameState(GameStateProtocol):
 
         if actor_idx == 0:
             # Robot (Actor 0)
-            if not existing_actions:
+            if not existing_actions or not SAMPLE_DISTANT_ACTIONS:
                 # First action has nothing to be diverse against
                 best_v = float(np.clip(rng.normal(v_mean, v_std), -self.config.robot_speed, self.config.robot_speed))
                 best_omega = float(np.clip(rng.normal(omega_mean, omega_std), -self.config.robot_angular_velocity, self.config.robot_angular_velocity))
@@ -152,12 +154,14 @@ class MCTSGameState(GameStateProtocol):
         return x_new, y_new, theta_new
 
     def apply_actions(self, actions: List[Tuple[Action, float]]) -> "GameStateProtocol":
-        substeps = 2
+        substeps = 4
         substep_dt = self.config.dt / substeps
         positions = self.positions.copy()
         velocities = self.velocities.copy()
         # The robot's continuous action is directly used
         robot_v, robot_omega = actions[0][0]
+
+        #collisions = np.zeros((self.config.mcts_config.num_actors))
 
         for i in range(substeps):
             # TODO: change human velocities to acommodate multiple potential actions to humans
@@ -177,9 +181,19 @@ class MCTSGameState(GameStateProtocol):
             velocities[0, 1] = robot_v * np.sin(robot_new_orientation)
             velocities[1:] = human_velocities
 
-            positions = positions + substep_dt * velocities
-            positions[0, 0] = x_new
-            positions[0, 1] = y_new
+            new_positions = positions + substep_dt * velocities
+            new_positions[0, 0] = x_new
+            new_positions[0, 1] = y_new
+            free_space = np.array([
+                self.config.map.position_is_free(new_positions[i, :])
+                for i in range(self.config.mcts_config.num_actors)
+            ])
+
+            #collisions += ~free_space
+
+            positions[free_space] = new_positions[free_space]
+
+        #collision_cost = -1.0 * collisions * self.config.robot_speed * substep_dt
 
         return MCTSGameState(
             positions, velocities, self.agent_goal_positions,
@@ -234,6 +248,25 @@ class MCTSGameState(GameStateProtocol):
 
         return -total_cost
     
+    def _near_wall_meter_score(self) -> np.ndarray:
+        robot_position = self.positions[0, :]
+        map = self.config.map
+        x, y = map.world_to_cell(robot_position)
+
+        x = x - 1
+        y = y - 1
+
+        start_x = np.clip(x, 0, map.width)
+        end_x = np.clip(x+3, 0, map.width)
+
+        start_y = np.clip(y, 0, map.height)
+        end_y = np.clip(y+3, 0, map.height)
+
+        num_cells = 1.0 if map.wall_cells_in_range((start_x, start_y), (end_x, end_y)) > 0 else 0.0
+        
+        return -self.config.robot_speed * self.config.dt * num_cells
+
+    
     def _sfm_force_score(self):
         num_humans = self.positions.shape[0] - 1
         if num_humans > 0:
@@ -268,11 +301,12 @@ class MCTSGameState(GameStateProtocol):
         #value_accumulator[0] += 0.6 * self._sfm_force_score()
         #value_accumulator[0] += self._uncomfortable_distance()
         value_accumulator[0] += 1.5 * self._uncomfortable_distance_meter_score()
+        #value_accumulator[0] += 0.1 * self._near_wall_meter_score()
         if self.is_terminal():
             value_accumulator += 1.0 * self._goal_distance()
         
         invalid_state_mask, _ = self._get_invalid_state()
-        value_accumulator[invalid_state_mask] = -1.0 * self.config.starting_distances[0]
+        value_accumulator[invalid_state_mask] = -2.0 * self.config.starting_distances[0]
 
         return value_accumulator
 
