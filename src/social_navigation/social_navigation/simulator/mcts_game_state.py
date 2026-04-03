@@ -12,9 +12,11 @@ SAMPLE_DISTANT_ACTIONS = True
 @dataclass(frozen=True, slots=True)
 class MCTSGameStateConfig:
     mcts_config: MCTSConfig
-    robot_speed: float
     dt: float
+    robot_speed: float
+    robot_max_linear_accel: float
     robot_angular_velocity: float
+    robot_max_angular_accel: float
     uncomfortable_distance: float
     map: ScenarioMap
     robot_radius: float
@@ -34,16 +36,19 @@ class MCTSGameStateConfig:
 
 class MCTSGameState(GameStateProtocol):
     __slots__ = (
-        "config", "positions", "velocities", "agent_goal_positions",
+        "config", "positions", "linear_velocities", "orientations", "angular_velocities", "agent_goal_positions",
         "depth", "_accumulated_value", "_collision_mask", "_collision_occured"
     )
 
-    def __init__(self, positions: np.ndarray, velocities: np.ndarray,
+    def __init__(self, positions: np.ndarray, linear_velocities: np.ndarray,
+                 orientations: np.ndarray, angular_velocities: np.ndarray,
                  agent_goal_positions: np.ndarray, accumulated_value: np.ndarray | None,
                  config: MCTSGameStateConfig, depth: int):
         self.config = config
         self.positions = positions
-        self.velocities = velocities
+        self.linear_velocities = linear_velocities
+        self.orientations = orientations
+        self.angular_velocities = angular_velocities
         self.agent_goal_positions = agent_goal_positions
         self._collision_mask = None
         self._collision_occured = None
@@ -56,15 +61,25 @@ class MCTSGameState(GameStateProtocol):
    
     def _score_robot_action(self, linear_velocity, rotational_velocity) -> float:
         robot_position = self.positions[0, :]
-        robot_velocity = self.velocities[0, :]
-        robot_orientation = np.arctan2(robot_velocity[1], robot_velocity[0])
+        robot_linear_velocity = self.linear_velocities[0]
+        robot_orientation = self.orientations[0]
+        robot_angular_velocity = self.angular_velocities[0]
+
+        linear_change = self.config.robot_max_linear_accel * self.config.dt
+        new_velocity = np.clip(linear_velocity,
+                                robot_linear_velocity + linear_change,
+                                robot_linear_velocity - linear_change)
+        angular_change = self.config.robot_max_angular_accel * self.config.dt
+        new_angular_velocity = np.clip(rotational_velocity,
+                                robot_angular_velocity + angular_change,
+                                robot_angular_velocity - angular_change)
 
         x_new, y_new, robot_new_orientation = self._propagate_unicycle(
             robot_position[0],
             robot_position[1],
             robot_orientation,
-            linear_velocity,
-            rotational_velocity,
+            new_velocity,
+            new_angular_velocity,
             self.config.dt,
         )
 
@@ -156,32 +171,57 @@ class MCTSGameState(GameStateProtocol):
     def apply_actions(self, actions: List[Tuple[Action, float]]) -> "GameStateProtocol":
         substeps = 4
         substep_dt = self.config.dt / substeps
+
         positions = self.positions.copy()
-        velocities = self.velocities.copy()
+        linear_velocities = self.linear_velocities.copy()
+        orientations = self.orientations.copy()
+        angular_velocities = self.angular_velocities.copy()
+
         # The robot's continuous action is directly used
-        robot_v, robot_omega = actions[0][0]
+        robot_goal_v, robot_goal_omega = actions[0][0]
 
         #collisions = np.zeros((self.config.mcts_config.num_actors))
 
         for i in range(substeps):
-            # TODO: change human velocities to acommodate multiple potential actions to humans
+            x_velocities = np.cos(self.orientations)
+            y_velocities = np.sin(self.orientations)
+            velocity_dir = np.concat([x_velocities[:, None], y_velocities[:, None]], axis=1)
+            velocities = velocity_dir * self.linear_velocities[:, None]
             human_velocities = self._calculate_human_velocities(positions, velocities)
 
             robot_position = positions[0, :]
-            robot_velocity = velocities[0, :]
-            robot_orientation = np.arctan2(robot_velocity[1], robot_velocity[0])
+            robot_linear_velocity = self.linear_velocities[0]
+            robot_orientation = orientations[0]
+            robot_angular_velocity = angular_velocities[0]
+
+            linear_change = self.config.robot_max_linear_accel * substep_dt
+            new_velocity = np.clip(robot_goal_v,
+                                   robot_linear_velocity - linear_change,
+                                   robot_linear_velocity + linear_change)
+            angular_change = self.config.robot_max_angular_accel * substep_dt
+            new_angular_velocity = np.clip(robot_goal_omega,
+                                   robot_angular_velocity - angular_change,
+                                   robot_angular_velocity + angular_change)
 
             x_new, y_new, robot_new_orientation = self._propagate_unicycle(
                 robot_position[0], robot_position[1], robot_orientation,
-                robot_v, robot_omega, substep_dt
+                new_velocity, new_angular_velocity, substep_dt
             )
 
-            velocities = np.empty_like(velocities)
-            velocities[0, 0] = robot_v * np.cos(robot_new_orientation)
-            velocities[0, 1] = robot_v * np.sin(robot_new_orientation)
-            velocities[1:] = human_velocities
+            linear_velocities = np.empty_like(linear_velocities)
+            linear_velocities[0] = new_velocity
+            linear_velocities[1:] = np.linalg.norm(human_velocities)
 
-            new_positions = positions + substep_dt * velocities
+            orientations = np.empty_like(orientations)
+            orientations[0] = robot_new_orientation
+            orientations[1:] = np.arctan2(human_velocities[:, 1], human_velocities[:, 0])
+
+            angular_velocities = np.empty_like(angular_velocities)
+            angular_velocities[0] = new_angular_velocity
+            angular_velocities[1:] = 0.0
+
+            new_positions = np.empty_like(positions)
+            new_positions[1:] = positions[1:] + substep_dt * human_velocities
             new_positions[0, 0] = x_new
             new_positions[0, 1] = y_new
             free_space = np.array([
@@ -196,7 +236,7 @@ class MCTSGameState(GameStateProtocol):
         #collision_cost = -1.0 * collisions * self.config.robot_speed * substep_dt
 
         return MCTSGameState(
-            positions, velocities, self.agent_goal_positions,
+            positions, linear_velocities, orientations, angular_velocities, self.agent_goal_positions,
             self._accumulated_value, self.config, self.depth + 1
         )
     

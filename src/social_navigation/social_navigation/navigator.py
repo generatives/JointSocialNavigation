@@ -1,6 +1,7 @@
 import math
 import random
 import time
+from typing import List
 
 import numpy as np
 
@@ -76,10 +77,18 @@ class Navigator(Node):
             map_qos,
         )
 
+        self.robot_linear_velocity = 0.0
+        self.robot_angular_velocity = 0.0
         self.odom_subscription = self.create_subscription(
             Odometry,
             '/odom',
-            self.odom_callback
+            self.odom_callback,
+            QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=1,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.VOLATILE,
+            ),
         )
         
         self.human_states: np.ndarray | None = None
@@ -134,8 +143,10 @@ class Navigator(Node):
 
         self.get_logger().info('Initialized successfully')
 
-    def odom_callback(self, msg):
-        print(f"")
+
+    def odom_callback(self, msg: Odometry):
+        self.robot_linear_velocity = msg.twist.twist.linear.x
+        self.robot_angular_velocity = msg.twist.twist.angular.z
 
     def execute_mcts_plan_callback(self):
         if self._mcts_plan_start_time is not None and self._mcts_action_plan is not None:
@@ -387,31 +398,29 @@ class Navigator(Node):
         marker.color.b = 0.1
         self.local_waypoint_publisher.publish(marker)
 
-    def _publish_child_state_marker(self, goal: np.ndarray | None) -> None:
+    def _publish_child_state_marker(self, goals: List[np.ndarray] | None) -> None:
         marker = Marker()
         marker.header.frame_id = "map"
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = "mcts_child_state"
         marker.id = 0
 
-        if goal is None:
+        if goals is None:
             marker.action = Marker.DELETE
             self.mcts_child_state_marker_publisher.publish(marker)
             return
 
-        marker.type = Marker.SPHERE
+        marker.type = Marker.LINE_STRIP
         marker.action = Marker.ADD
-        marker.pose.position.x = float(goal[0])
-        marker.pose.position.y = float(goal[1])
-        marker.pose.position.z = 0.25
-        marker.pose.orientation.w = 1.0
-        marker.scale.x = 0.28
-        marker.scale.y = 0.28
-        marker.scale.z = 0.28
+        marker.points = [
+            Point(x=goal[0], y=goal[1], z=0.2) for goal in goals
+        ]
+        marker.scale.x = 0.05
+
         marker.color.a = 0.95
-        marker.color.r = 0.95
+        marker.color.r = 0.1
         marker.color.g = 0.1
-        marker.color.b = 0.1
+        marker.color.b = 0.95
         self.mcts_child_state_marker_publisher.publish(marker)
 
     def _update_global_plan(self, robot_position: np.ndarray) -> None:
@@ -480,9 +489,9 @@ class Navigator(Node):
             next_point = path_points[idx + 1]
             segment = np.linalg.norm(next_point - current_point)
             travelled += segment
+            waypoint = next_point
             if travelled >= self._local_waypoint_lookahead:
                 break
-            waypoint = next_point
 
 
         self._publish_local_waypoint(waypoint)
@@ -524,10 +533,10 @@ class Navigator(Node):
             self.send_cmd_vel(0.0, 0.0)
             return
         
-
         tree_depth = 6
 
         robot_speed = 1.0
+        robot_angular_velocity = 1.82
         robot_radius = 0.5
         dt = self._get_prediction_dt(tree_depth, robot_speed)
         robot_yaw = quat_to_yaw(
@@ -540,49 +549,62 @@ class Navigator(Node):
         positions = np.array([
             [transform.transform.translation.x, transform.transform.translation.y]
         ])
-        velocities = np.array([
-            [math.cos(robot_yaw), math.sin(robot_yaw)]
+        orientations = np.array([
+            robot_yaw
+        ])
+        linear_velocities = np.array([
+            self.robot_linear_velocity
+        ])
+        angular_velocities = np.array([
+            self.robot_angular_velocity
+        ])
+        goal_positions = np.array([
+            [local_waypoint[0], local_waypoint[1]]
         ])
 
-        human_goals = np.empty((0, 2))
-        human_positions = np.empty((0, 2))
         if self.human_states is not None:
             human_positions = self.human_states[:, :2]
             human_velocities = self.human_states[:, 2:]
+            human_linear_velocities = np.linalg.norm(human_velocities, axis=1)
+            human_orientations = np.arctan2(human_velocities[:, 1], human_velocities[:, 0])
+            human_angular_velocities = np.zeros_like(human_orientations)
             human_goals = self._predict_human_goals(
                 human_positions,
                 human_velocities,
                 dt,
                 tree_depth,
             )
-            positions = np.vstack((positions, human_positions))
-            velocities = np.vstack((velocities, human_velocities))
+            positions = np.concat((positions, human_positions), axis=0)
+            orientations = np.concat((orientations, human_orientations), axis=0)
+            linear_velocities = np.concat((linear_velocities, human_linear_velocities), axis=0)
+            angular_velocities = np.concat((angular_velocities, human_angular_velocities), axis=0)
 
-        goal_positions = np.array([
-            [local_waypoint[0], local_waypoint[1]]
-        ])
-        if human_goals.shape[0] > 0:
-            goal_positions = np.vstack((goal_positions, human_goals))
+            if human_goals.shape[0] > 0:
+                goal_positions = np.concat((goal_positions, human_goals), axis=0)
+
 
         num_agents = positions.shape[0]
-        num_actions = [6] + [1] * (num_agents - 1)
+        num_actions = [8] + [1] * (num_agents - 1)
         mcts_config = MCTSConfig(
             num_actors=num_agents,
             max_actions=num_actions,
             max_depth=tree_depth,
             rng=np.random.default_rng(),
-            pw_c=1.0,
-            pw_alpha=0.35
+            c_puct=1.4 * 2.0,
+            pw_c=2.0,
+            pw_alpha=0.3
         )
         starting_distances = np.linalg.norm(goal_positions - positions, axis=1)
 
         state_config = MCTSGameStateConfig(
             mcts_config=mcts_config,
-            robot_speed=robot_speed,
             dt=dt,
+            robot_speed=robot_speed,
+            robot_max_linear_accel=2.5,
+            robot_angular_velocity=robot_angular_velocity,
+            robot_max_angular_accel=1.2,
             robot_radius=robot_radius,
             human_radius=0.5,
-            robot_angular_velocity=np.pi / 2.0,
             uncomfortable_distance=1.75,
             map=self._scenario_map,
             starting_distances=starting_distances,
@@ -591,7 +613,9 @@ class Navigator(Node):
 
         root_state = MCTSGameState(
             positions=positions,
-            velocities=velocities,
+            linear_velocities=linear_velocities,
+            orientations=orientations,
+            angular_velocities=angular_velocities,
             agent_goal_positions=goal_positions,
             accumulated_value=None,
             config=state_config,
@@ -603,8 +627,9 @@ class Navigator(Node):
         mcts_elapsed_ms = (time.perf_counter() - mcts_start_time) * 1000.0
         
         if actions is not None and states is not None:
-            intermediate_goal = states[0].positions[0].copy()  
-            self._publish_child_state_marker(intermediate_goal)
+            marker_goals = [robot_position]
+            marker_goals.extend([state.positions[0].copy() for state in states])
+            self._publish_child_state_marker(marker_goals)
 
             self._mcts_action_plan = actions
             self._mcts_plan_start_time = time.time()
