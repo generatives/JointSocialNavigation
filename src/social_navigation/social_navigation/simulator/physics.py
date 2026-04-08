@@ -18,6 +18,7 @@ def collides_with_walls(position: np.ndarray, radius: float, scenario: ScenarioM
     max_x = int(math.ceil(position[0] + radius))
     min_y = int(math.floor(position[1] - radius))
     max_y = int(math.ceil(position[1] + radius))
+    
     for y in range(min_y, max_y + 1):
         for x in range(min_x, max_x + 1):
             if x < 0 or y < 0 or x >= scenario.width or y >= scenario.height:

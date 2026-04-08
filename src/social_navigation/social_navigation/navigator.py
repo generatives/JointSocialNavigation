@@ -154,9 +154,11 @@ class Navigator(Node):
             current_time = time.time()
             action_idx = int((current_time - self._mcts_plan_start_time) / dt)
             if action_idx >= len(self._mcts_action_plan):
+                #print("Done plan, stopping")
                 self.send_cmd_vel(0.0, 0.0)
             else:
                 lin_vel, ang_vel = self._mcts_action_plan[action_idx][0]
+                #print(f"Executing action {action_idx}: {lin_vel}, {ang_vel}")
                 self.send_cmd_vel(lin_vel, ang_vel)
 
     def clicked_point_callback(self, msg: PointStamped):
@@ -451,7 +453,7 @@ class Navigator(Node):
 
         inflated_grid = inflate_grid(self._scenario_map.grid, int(60 / 5))
         path_cells = a_star(inflated_grid, start_cell, goal_cell)
-        path_cells = simplify_path(path_cells)
+        #path_cells = simplify_path(path_cells)
         self._global_plan_cells = path_cells
         self._publish_global_path(path_cells)
         if not path_cells:
@@ -517,6 +519,8 @@ class Navigator(Node):
             self._goal_point = None
             self._global_plan_cells = []
             self._last_global_plan_time = None
+            self._mcts_action_plan = None
+            self._mcts_plan_start_time = None
             self._publish_global_path([])
             self._publish_local_waypoint(None)
             self._publish_child_state_marker(None)
@@ -623,6 +627,7 @@ class Navigator(Node):
         )
 
         mcts_start_time = time.perf_counter()
+        mcts_plan_start_time = time.time()
         actions, states, _, _ = mcts.search(root_state, num_simulations=500)
         mcts_elapsed_ms = (time.perf_counter() - mcts_start_time) * 1000.0
         
@@ -631,8 +636,9 @@ class Navigator(Node):
             marker_goals.extend([state.positions[0].copy() for state in states])
             self._publish_child_state_marker(marker_goals)
 
+            #print([action[0] for action in actions])
             self._mcts_action_plan = actions
-            self._mcts_plan_start_time = time.time()
+            self._mcts_plan_start_time = mcts_plan_start_time
 
             total_plan_elapsed_ms = (time.perf_counter() - plan_start_time) * 1000.0
             self.get_logger().info(

@@ -5,6 +5,7 @@ import numpy as np
 
 from social_navigation.mcts.decoupled_mcts import Action, GameStateProtocol, MCTSConfig, ValueMap
 from social_navigation.simulator.constants import WALL
+from social_navigation.simulator.physics import collides_with_walls
 from social_navigation.simulator.scenario_map import ScenarioMap
 
 SAMPLE_DISTANT_ACTIONS = True
@@ -225,7 +226,10 @@ class MCTSGameState(GameStateProtocol):
             new_positions[0, 0] = x_new
             new_positions[0, 1] = y_new
             free_space = np.array([
-                self.config.map.position_is_free(new_positions[i, :])
+                not collides_with_walls(
+                    self.config.map.world_to_cell(new_positions[i, :]),
+                    self.config.robot_radius if i == 0 else self.config.human_radius,
+                    self.config.map)
                 for i in range(self.config.mcts_config.num_actors)
             ])
 
@@ -341,7 +345,7 @@ class MCTSGameState(GameStateProtocol):
         #value_accumulator[0] += 0.6 * self._sfm_force_score()
         #value_accumulator[0] += self._uncomfortable_distance()
         value_accumulator[0] += 1.5 * self._uncomfortable_distance_meter_score()
-        #value_accumulator[0] += 0.1 * self._near_wall_meter_score()
+        value_accumulator[0] += 0.1 * self._near_wall_meter_score()
         if self.is_terminal():
             value_accumulator += 1.0 * self._goal_distance()
         

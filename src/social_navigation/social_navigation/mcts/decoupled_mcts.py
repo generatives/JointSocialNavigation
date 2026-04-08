@@ -249,11 +249,11 @@ class MCTS:
 
         for i in range(num_simulations):
             self._search_iteration(root)
-            if i % 100 == 0:
-                print(f"Iteration: {i}")
+            #if i % 100 == 0:
+                #print(f"Iteration: {i}")
                 #root.print_robot_scores()
-                print(root.action_visits[0])
-        
+                #print(root.action_visits[0])
+
         state_trajectory = []
         for child in sorted(root.children.values(), key=lambda n: n.visits, reverse=True)[:5]:
             trajectory = self._get_expected_trajectory(child)
@@ -262,18 +262,18 @@ class MCTS:
         next_node = root
         actions = []
         states = []
-        robot_action_percentages = []
+        #robot_action_percentages = []
         while next_node.visits > 0 and len(next_node.children) > 0:
             best_actions = self._most_visited_actions(next_node)
             action_definition = [next_node.action_definitions[actor_idx][action_idx][0] for actor_idx, action_idx in enumerate(best_actions)]
             actions.append(action_definition)
             states.append(next_node.state)
 
-            robot_action_percentages.append(next_node.action_visits[0][best_actions[0]] / next_node.visits)
+            #robot_action_percentages.append(next_node.action_visits[0][best_actions[0]] / next_node.visits)
 
             next_node = next_node.get_child(tuple(best_actions))
 
-        print(robot_action_percentages)
+        #print(robot_action_percentages)
         
         return actions, states, state_trajectory, None
         
