@@ -1,11 +1,8 @@
 import os
 
-import yaml
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
-    IncludeLaunchDescription,
     OpaqueFunction,
 )
 from launch.conditions import IfCondition
@@ -19,19 +16,24 @@ from hunavis.utils import goal_from_params
 def launch_setup(context, *args, **kwargs):
     social_simulator_pkg = FindPackageShare("social_simulator")
 
+    use_sim_time = LaunchConfiguration("use_sim_time")
     use_simulator = LaunchConfiguration("use_simulator")
     scenario_params_file = LaunchConfiguration("scenario_params_file")
     run_rviz = LaunchConfiguration("run_rviz")
     rviz_file = LaunchConfiguration("rviz_file")
 
     rviz_file_path = PathJoinSubstitution([social_simulator_pkg, "rviz", rviz_file])
-    rviz_file_val = rviz_file_path.perform(context)
+
     rviz_node = Node(
         condition=IfCondition(run_rviz),
         package="rviz2",
         executable="rviz2",
-        arguments=["-d", rviz_file_val],
+        arguments=["-d", rviz_file_path],
         output={"both": "log"},
+        parameters=[{'use_sim_time': use_sim_time},
+            {'wrapper_pkg_name': 'hunav_gazebo_wrapper'},
+        ],
+        prefix=f"vglrun -d {os.environ.get('DISPLAY', ':1')}",
     )
 
     # Load list of human goals from the simulation parameters
@@ -58,6 +60,12 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument(
+                "use_sim_time",
+                default_value="true",
+                description="Whether to use sim time.",
+                choices=["true", "false"],
+            ),
+            DeclareLaunchArgument(
                 "use_simulator",
                 default_value="True",
                 description="Whether to use simulator.",
@@ -76,7 +84,7 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "rviz_file",
-                default_value="default_sim_view.yaml",
+                default_value="default_sim_view.rviz",
                 description=("File containing rviz settings."),
             ),
             OpaqueFunction(function=launch_setup),

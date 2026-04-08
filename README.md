@@ -75,6 +75,13 @@ colcon build --symlink-install --packages-select social_simulator
 
 To run the simulator (I suggest to use tmux):
 ```
+ros2 launch social_simulator social_simulator.launch.py scenario:=agents_wide_hallway.yaml
+```
+
+### DEBUGGING: 
+
+To run each launch file separately
+```
 ros2 launch social_simulator simulator.launch.py world:=wide_hallway.world scenario:=agents_wide_hallway.yaml
 ```
 
