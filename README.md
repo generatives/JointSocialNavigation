@@ -79,9 +79,10 @@ ros2 launch social_simulator simulator.launch.py world:=wide_hallway.world scena
 ```
 
 ```
-ros2 launch social_simulator tb3_custom_sim.launch.py map:=wide_hallway.yaml
+ros2 launch social_simulator tb3_custom_sim.launch.py map:=wide_hallway.yaml scenario:=agents_wide_hallway.yaml
 ```
 
+```
 ros2 launch social_simulator hudet.launch.py scenario_params_file:=agents_wide_hallway.yaml
 ```
 
