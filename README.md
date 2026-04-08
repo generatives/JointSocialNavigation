@@ -75,10 +75,43 @@ colcon build --symlink-install --packages-select social_simulator
 
 To run the simulator (I suggest to use tmux):
 ```
-ros2 launch social_simulator simulator.launch.py world:=doors_hallway.world scenario:=agents_doors_hallway.yaml
-ros2 launch social_simulator tb3_custom_sim.launch.py map:=doors_hallway.yaml
-ros2 launch social_simulator hudet.launch.py scenario_params_file:=agents_doors_hallway.yaml
+ros2 launch social_simulator simulator.launch.py world:=wide_hallway.world scenario:=agents_wide_hallway.yaml
 ```
+
+```
+ros2 launch social_simulator tb3_custom_sim.launch.py map:=wide_hallway.yaml
+```
+
+ros2 launch social_simulator hudet.launch.py scenario_params_file:=agents_wide_hallway.yaml
+```
+
+```
+ros2 run social_navigation navigator
+```
+
+### To start HuNavSim Evaluator:
+
+
+```
+ros2 launch hunav_rviz2_panel hunav_rviz2_launch.py map:=/workspaces/JointSocialNavigation/src/social_simulator/maps/wide_hallway.yaml
+```
+
+
+Start evaluator launch
+```
+ros2 launch hunav_evaluator hunav_evaluator_launch.py metrics_file:=/workspaces/JointSocialNavigation/src/social_simulator/config/metrics.yaml
+```
+
+Start recording
+```
+ros2 service call /hunav_start_recording hunav_msgs/srv/StartEvaluation "{robot_goal: {header: {frame_id: map}, pose: {position: {x: 5.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}, experiment_tag: 'wide_hallway', run_id: 1}"
+```
+
+Stop recording
+```
+ros2 service call /hunav_stop_recording std_srvs/srv/Empty "{}"
+```
+
 
 Teleop command:
 ```
