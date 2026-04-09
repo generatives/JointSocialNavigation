@@ -1,0 +1,36 @@
+hunav_loader:
+  ros__parameters:
+    map: cafe
+    publish_people: true
+    agents:
+      - agent_1
+    agent_1:
+      id: 1
+      skin: 0
+      group_id: -1
+      max_vel: 1.0
+      radius: 0.4
+      behavior:
+        type: 1
+        configuration: 0
+        duration: 40.0
+        once: true
+        vel: 1.0
+        dist: 4.5
+        goal_force_factor: 2.0
+        obstacle_force_factor: 10.0
+        social_force_factor: 5.0
+        other_force_factor: 20.0
+      init_pose:
+        x: -5.381537
+        y: 0.034843
+        z: 1.250000
+        h: 0.0
+      goal_radius: 0.3
+      cyclic_goals: false
+      goals:
+        - g0
+      g0:
+        x: 8.377087
+        y: -0.104486
+        h: 1.250000

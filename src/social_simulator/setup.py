@@ -4,6 +4,15 @@ from setuptools import find_packages, setup
 
 package_name = 'social_simulator'
 
+def add_subfolders(folder_name, data_files):
+    for filepath in glob(f"{folder_name}/**/*", recursive=True):
+        if os.path.isfile(filepath):
+            relative_path = os.path.relpath(filepath, folder_name)
+            install_dir = os.path.join(
+                "share", package_name, folder_name, os.path.dirname(relative_path)
+            )
+            data_files.append((install_dir, [filepath]))
+
 data_files = [
     ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
     ("share/" + package_name, ["package.xml"]),
@@ -11,18 +20,12 @@ data_files = [
     (os.path.join("share", package_name, "worlds"), glob("worlds/*")),
     (os.path.join("share", package_name, "launch"), glob("launch/*")),
     (os.path.join("share", package_name, "config"), glob("config/*")),
-    (os.path.join("share", package_name, "scenarios"), glob("scenarios/*")),
     (os.path.join("share", package_name, "rviz"), glob("rviz/*")),
     (os.path.join("share", package_name, "params"), glob("params/*")),
 ]
 
-for filepath in glob("models/**/*", recursive=True):
-    if os.path.isfile(filepath):
-        relative_path = os.path.relpath(filepath, "models")
-        install_dir = os.path.join(
-            "share", package_name, "models", os.path.dirname(relative_path)
-        )
-        data_files.append((install_dir, [filepath]))
+add_subfolders("models", data_files)
+add_subfolders("scenarios", data_files)
 
 setup(
     name=package_name,
