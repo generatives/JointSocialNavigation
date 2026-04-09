@@ -1,7 +1,17 @@
 hunav_loader:
   ros__parameters:
+    world: t_shape_hallway
     map: t_shape_hallway
     publish_people: true
+    robot:
+      init_pose:
+        x: -9.5
+        y: 2.5
+        z: 1.250000
+        yaw: 0
+      goal:
+        x: 9.5
+        y: -1.0
     agents:
       - worker1
       - worker2

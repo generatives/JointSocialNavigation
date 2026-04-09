@@ -1,7 +1,17 @@
 hunav_loader:
   ros__parameters:
+    world: intersection_hallway
     map: intersection_hallway
     publish_people: true
+    robot:
+      init_pose:
+        x: -8.381537
+        y: 0.034843
+        z: 1.250000
+        yaw: 0
+      goal:
+        x: 8.377087
+        y: -0.104486
     agents:
       - worker1
       - worker2

@@ -1,7 +1,17 @@
 hunav_loader:
   ros__parameters:
-    map: cafe
+    world: narrow_hallway
+    map: narrow_hallway
     publish_people: true
+    robot:
+      init_pose:
+        x: -6.381537
+        y: 0.034843
+        z: 1.250000
+        yaw: 0
+      goal:
+        x: 9.377087
+        y: -0.104486
     agents:
       - agent_1
     agent_1:
