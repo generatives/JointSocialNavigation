@@ -34,6 +34,7 @@ def generate_launch_description():
     ld.add_action(DeclareLaunchArgument("robot_name", default_value="turtlebot3_waffle"))
     ld.add_action(DeclareLaunchArgument("global_frame_to_publish", default_value="map"))
     ld.add_action(DeclareLaunchArgument("use_navgoal_to_start", default_value="false"))
+    ld.add_action(DeclareLaunchArgument("navgoal_topic", default_value="/goal_pose"))
     ld.add_action(DeclareLaunchArgument("ignore_models", default_value="ground_plane"))
     ld.add_action(DeclareLaunchArgument("verbose", default_value="true"))
     ld.add_action(DeclareLaunchArgument(
@@ -91,6 +92,7 @@ def generate_launch_description():
             {"robot_name": LaunchConfiguration("robot_name")},
             {"global_frame_to_publish": LaunchConfiguration("global_frame_to_publish")},
             {"use_navgoal_to_start": LaunchConfiguration("use_navgoal_to_start")},
+            {"navgoal_topic": LaunchConfiguration("navgoal_topic")},
             {"ignore_models": LaunchConfiguration("ignore_models")},
         ],
         condition=IfCondition(use_humans),

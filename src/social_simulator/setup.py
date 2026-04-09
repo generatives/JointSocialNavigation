@@ -45,6 +45,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'evaluation_runner = social_simulator.evaluation_runner:main'
         ],
     },
 )

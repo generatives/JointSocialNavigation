@@ -58,10 +58,16 @@ class Navigator(Node):
         execute_period = plan_period / 10.0
         self.execute_plan_timer = self.create_timer(execute_period, self.execute_mcts_plan_callback)
 
-        self.goal_subscription = self.create_subscription(
+        self.clicked_goal_subscription = self.create_subscription(
             PointStamped,
             '/clicked_point',
             self.clicked_point_callback,
+            10)
+
+        self.evaluation_goal_subscription = self.create_subscription(
+            PoseStamped,
+            '/evaluation_goal_set',
+            self.evaluation_goal_set_callback,
             10)
 
         map_qos = QoSProfile(
@@ -162,11 +168,29 @@ class Navigator(Node):
                 self.send_cmd_vel(lin_vel, ang_vel)
 
     def clicked_point_callback(self, msg: PointStamped):
-        self.get_logger().info('I heard: "%s"' % msg)
+        self.get_logger().info('I heard clicked goal: "%s"' % msg)
         self._goal_point = msg
         self._global_plan_cells = []
         self._last_global_plan_time = None
         self._plan(True)
+
+    def evaluation_goal_set_callback(self, msg: PoseStamped):
+        self.get_logger().info('I heard eval goal: "%s"' % msg)
+        if self._goal_point is not None:
+            self.get_logger().error(
+                "An evaluation goal has been set after another goal. Something is probably be wrong.")
+            
+        self._goal_point = PointStamped(
+            point=Point(
+                x=msg.pose.position.x,
+                y=msg.pose.position.y,
+                z=msg.pose.position.z,
+            )
+        )
+        self._global_plan_cells = []
+        self._last_global_plan_time = None
+        self._plan(True)
+
 
     def human_states_callback(self, msg: Agents):
         num_agents = len(msg.agents)

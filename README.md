@@ -97,6 +97,18 @@ ros2 launch social_simulator hudet.launch.py scenario_params_file:=agents_wide_h
 ros2 run social_navigation navigator
 ```
 
+### To Run Evaluations
+
+Start the simulator with the correct map and scenario
+```
+ros2 launch social_simulator social_simulator.launch.py world:=narrow_hallway.world scenario:=narrow_hallway/agents_1_ahead_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/evaluation_goal_set'
+```
+
+Start the evaluation with the right scenario
+```
+ros2 launch social_simulator evaluation.launch.py scenario:=narrow_hallway/agents_1_ahead_robot.yaml experiment_tag:=test_run run_id:=0
+```
+
 ### To start HuNavSim Evaluator:
 
 

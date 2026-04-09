@@ -38,6 +38,7 @@ def launch_setup(context, *args, **kwargs):
         context
     )
     use_navgoal_to_start = LaunchConfiguration("use_navgoal_to_start").perform(context)
+    navgoal_topic = LaunchConfiguration("navgoal_topic").perform(context)
     ignore_models = LaunchConfiguration("ignore_models").perform(context)
     use_namespace = LaunchConfiguration("use_namespace").perform(context)
     slam = LaunchConfiguration("slam").perform(context)
@@ -61,6 +62,7 @@ def launch_setup(context, *args, **kwargs):
             "robot_name": robot_name,
             "global_frame_to_publish": global_frame_to_publish,
             "use_navgoal_to_start": use_navgoal_to_start,
+            "navgoal_topic": navgoal_topic,
             "ignore_models": ignore_models,
             "robot_sdf": robot_sdf,
             "namespace": namespace,
@@ -168,6 +170,11 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "use_navgoal_to_start",
                 default_value="false",
+                description="Whether to delay humans until a nav goal is sent.",
+            ),
+            DeclareLaunchArgument(
+                "navgoal_topic",
+                default_value="/goal_pose",
                 description="Whether to delay humans until a nav goal is sent.",
             ),
             DeclareLaunchArgument(
