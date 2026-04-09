@@ -42,7 +42,6 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'scenario_robot_publisher = social_simulator.scenario_robot_publisher:main',
         ],
     },
 )

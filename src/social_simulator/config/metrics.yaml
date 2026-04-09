@@ -4,11 +4,11 @@ hunav_evaluator_node:
     # Specify the frecuency of data capture (Hz).
     # value 0.0 indicates that data is captured as the same 
     # freq than data is published.
-    # frequency: 1.0
+    frequency: 1.0
 
     # optional tag that can be used to identify among 
     # different scenarios or goal trajectories
-    # experiment_tag: '1'
+    experiment_tag: '1'
 
     # A .txt file will be created with this name (indicate the full path).
     # If the file already exists, the file will be open
