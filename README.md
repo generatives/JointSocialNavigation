@@ -82,7 +82,7 @@ ros2 launch social_simulator social_simulator.launch.py scenario:=agents_wide_ha
 
 To run each launch file separately
 ```
-ros2 launch social_simulator simulator.launch.py world:=wide_hallway.world scenario:=agents_wide_hallway.yaml
+ros2 launch social_simulator hunavsim.launch.py world:=wide_hallway.world scenario:=agents_wide_hallway.yaml
 ```
 
 ```
