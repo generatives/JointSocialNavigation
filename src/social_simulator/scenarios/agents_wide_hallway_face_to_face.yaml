@@ -1,5 +1,6 @@
 hunav_loader:
   ros__parameters:
+    world: wide_hallway
     map: wide_hallway
     publish_people: true
     robot:
@@ -7,16 +8,10 @@ hunav_loader:
         x: 9.5
         y: 0.0
         z: 0.01
-        face_agent: worker1
+        yaw: 3.1415
       goal:
         x: -8.0
         y: 0.0
-        z: 0.0
-        face_agent: worker1
-      publish_initialpose: true
-      publish_goal: true
-      initialpose_delay_sec: 5.0
-      goal_delay_sec: 8.0
     agents:
       - worker1
     worker1:
@@ -46,8 +41,6 @@ hunav_loader:
       goals:
         - g0
         - g1
-        - g2
-        - g3
       g0:
         x: 9.5
         y: 0.0
