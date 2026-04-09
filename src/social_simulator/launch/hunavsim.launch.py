@@ -18,16 +18,9 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
-    world_dir = FindPackageShare("social_simulator")
-
-    world_file = LaunchConfiguration("world")
-    scenario_file = LaunchConfiguration("scenario")
-    use_humans = LaunchConfiguration("use_humans")
-    headless = LaunchConfiguration("headless")
-
-    base_world_path = PathJoinSubstitution([world_dir, "worlds", world_file])
-    generated_world_path = PathJoinSubstitution([world_dir, "worlds", "generatedWorld.world"])
-    scenario_path = PathJoinSubstitution([FindPackageShare("social_simulator"), "scenarios", scenario_file])
+    # Find packages
+    social_simulator_pkg = FindPackageShare("social_simulator")
+    hunav_gazeob_wrapper_pkg = FindPackageShare("hunav_gazebo_wrapper")
 
     ld = LaunchDescription()
 
@@ -55,7 +48,16 @@ def generate_launch_description():
     ld.add_action(DeclareLaunchArgument("pitch", default_value="0.0"))
     ld.add_action(DeclareLaunchArgument("yaw", default_value="0.0"))
 
-    my_gazebo_models = PathJoinSubstitution([FindPackageShare("hunav_gazebo_wrapper"), "models"])
+    world_file = LaunchConfiguration("world")
+    scenario_file = LaunchConfiguration("scenario")
+    use_humans = LaunchConfiguration("use_humans")
+    headless = LaunchConfiguration("headless")
+
+    base_world_path = PathJoinSubstitution([social_simulator_pkg, "worlds", world_file])
+    generated_world_path = PathJoinSubstitution([social_simulator_pkg, "worlds", "generatedWorld.world"])
+    scenario_path = PathJoinSubstitution([social_simulator_pkg, "scenarios", scenario_file])
+    
+    my_gazebo_models = PathJoinSubstitution([hunav_gazeob_wrapper_pkg, "models"])
     ld.add_action(SetEnvironmentVariable(
         name="GAZEBO_RESOURCE_PATH",
         value=[EnvironmentVariable("GAZEBO_RESOURCE_PATH"), my_gazebo_models],
@@ -122,6 +124,7 @@ def generate_launch_description():
 
     gzclient = ExecuteProcess(
         cmd=["gzclient"],
+        # cmd=["vglrun", "-d", os.environ.get("DISPLAY", ":1"), "gzclient"], # CUDA 13.1
         output="screen",
         on_exit=Shutdown(),
         condition=UnlessCondition(headless),
@@ -160,8 +163,8 @@ def generate_launch_description():
             on_start=[TimerAction(period=2.0, actions=[gzserver])],
         )
     ))
-
     ld.add_action(gzserver_nohumans)
+
     ld.add_action(gzclient)
     ld.add_action(TimerAction(period=4.0, actions=[robot_spawn]))
 

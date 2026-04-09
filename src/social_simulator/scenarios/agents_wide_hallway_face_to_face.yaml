@@ -1,0 +1,51 @@
+hunav_loader:
+  ros__parameters:
+    world: wide_hallway
+    map: wide_hallway
+    publish_people: true
+    robot:
+      init_pose:
+        x: 9.5
+        y: 0.0
+        z: 0.01
+        yaw: 3.1415
+      goal:
+        x: -8.0
+        y: 0.0
+    agents:
+      - worker1
+    worker1:
+      id: 1
+      skin: 1
+      group_id: -1
+      max_vel: 1.0
+      radius: 0.4
+      behavior: 
+        type: 1 # REGULAR=1, IMPASSIVE=2, SURPRISED=3, SCARED=4, CURIOUS=5, THREATENING=6
+        configuration: 0 # def: 0, custom:1, random_normal:2, random_uniform:3
+        duration: 40.0  # seg
+        once: true
+        vel: 0.6
+        dist: 0.0
+        goal_force_factor: 2.0
+        obstacle_force_factor: 10.0
+        social_force_factor: 5.0
+        other_force_factor: 20.0
+      init_pose:
+        x: -9.5
+        y: 0.0
+        z: 1.250000
+        h: 0.0
+      goal_radius: 0.3
+      cyclic_goals: true
+      goals:
+        - g0
+        - g1
+      g0:
+        x: 9.5
+        y: 0.0
+        h: 1.250000
+      g1:
+        x: -9.5
+        y: 0.0
+        h: 1.250000

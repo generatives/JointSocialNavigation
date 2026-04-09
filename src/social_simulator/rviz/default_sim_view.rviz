@@ -6,12 +6,11 @@ Panels:
       Expanded:
         - /TF1/Frames1
         - /TF1/Tree1
-        - /Map1
-        - /Human Detection1
+        - /Realsense1
         - /Human Detection1/Human Goals1
         - /Human Detection1/Human Positions1
       Splitter Ratio: 0.5833333134651184
-    Tree Height: 680
+    Tree Height: 284
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -26,6 +25,11 @@ Panels:
     Splitter Ratio: 0.5
   - Class: nav2_rviz_plugins/Navigation 2
     Name: Navigation 2
+  - Class: hunav_rviz2_panel/HunavPanel
+    Name: HunavPanel
+    Topic: ""
+  - Class: hunav_rviz2_panel/HunavMetricsPanel
+    Name: HunavMetricsPanel
 Visualization Manager:
   Class: ""
   Displays:
@@ -487,7 +491,7 @@ Visualization Manager:
     - Class: rviz_common/Group
       Displays:
         - Class: rviz_default_plugins/Image
-          Enabled: true
+          Enabled: false
           Max Value: 1
           Median window: 5
           Min Value: 0
@@ -499,7 +503,7 @@ Visualization Manager:
             History Policy: Keep Last
             Reliability Policy: Reliable
             Value: /intel_realsense_r200_depth/image_raw
-          Value: true
+          Value: false
         - Alpha: 1
           Autocompute Intensity Bounds: true
           Autocompute Value Bounds:
@@ -543,20 +547,7 @@ Visualization Manager:
           Name: Human Goals
           Namespaces:
             goal_0 for agent_0: true
-            goal_0 for agent_1: true
-            goal_0 for agent_2: true
-            goal_0 for agent_3: true
             goal_1 for agent_0: true
-            goal_1 for agent_1: true
-            goal_1 for agent_2: true
-            goal_1 for agent_3: true
-            goal_2 for agent_1: true
-            goal_2 for agent_2: true
-            goal_2 for agent_3: true
-            goal_3 for agent_2: true
-            goal_3 for agent_3: true
-            goal_4 for agent_3: true
-            goal_5 for agent_3: true
           Topic:
             Depth: 5
             Durability Policy: Volatile
@@ -583,8 +574,7 @@ Visualization Manager:
       Enabled: true
       Name: MarkerArray
       Namespaces:
-        predicted_human_goal_paths: true
-        predicted_human_goals: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -624,7 +614,7 @@ Visualization Manager:
       Enabled: true
       Name: Marker
       Namespaces:
-        mcts_local_waypoint: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -637,14 +627,14 @@ Visualization Manager:
       Enabled: true
       Name: Marker
       Namespaces:
-        mcts_nav2_goal: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /mcts_nav2_goal
+        Value: /mcts_child_state
       Value: true
   Enabled: true
   Global Options:
@@ -677,6 +667,7 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /clicked_point
     - Class: nav2_rviz_plugins/GoalTool
+    - Class: hunav_rviz2_panel/HunavGoals
   Transformation:
     Current:
       Class: rviz_default_plugins/TF
@@ -693,21 +684,25 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 295.3528137207031
+      Scale: 55.51502227783203
       Target Frame: <Fixed Frame>
       Value: TopDownOrtho (rviz_default_plugins)
-      X: -1.3526012897491455
-      Y: -0.8211750388145447
+      X: 1.2315278053283691
+      Y: -0.525484025478363
     Saved: ~
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 2086
+  Height: 940
   Hide Left Dock: false
   Hide Right Dock: true
+  HunavMetricsPanel:
+    collapsed: false
+  HunavPanel:
+    collapsed: false
   Navigation 2:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd00000004000000000000032200000794fc020000000afb0000001200530065006c0065006300740069006f006e00000001e10000009b000000ab00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000005fb0000023c00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c00610079007301000000690000030c0000017800fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb00000018004e0061007600690067006100740069006f006e002000320100000381000003e1000001df00fffffffb0000001e005200650061006c00730065006e0073006500430061006d006500720061010000076e0000008f0000004500ffffff000000010000014d00000a2efc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073000000006900000a2e0000012300fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000004420000003efc0100000002fb0000000800540069006d00650100000000000004420000000000000000fb0000000800540069006d0065010000000000000450000000000000000000000bd20000079400000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000400000000000001f200000356fc020000000cfb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000005fb0000023c00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073010000003b00000157000000c700fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb00000018004e0061007600690067006100740069006f006e00200032000000010c000001230000012300fffffffb0000001e005200650061006c00730065006e0073006500430061006d006500720061000000017c0000003e0000002800fffffffb0000001400480075006e0061007600500061006e0065006c010000019800000113000000a300fffffffb0000002200480075006e00610076004d00650074007200690063007300500061006e0065006c01000002b1000000e00000008500ffffff000000010000014d00000a2efc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073000000006900000a2e000000a000fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000004420000003efc0100000002fb0000000800540069006d00650100000000000004420000000000000000fb0000000800540069006d00650100000000000004500000000000000000000005880000035600000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   RealsenseCamera:
     collapsed: false
   Selection:
@@ -716,6 +711,6 @@ Window Geometry:
     collapsed: false
   Views:
     collapsed: true
-  Width: 3840
+  Width: 1920
   X: 0
-  Y: 0
+  Y: 32

@@ -14,7 +14,7 @@ hunav_evaluator_node:
     # If the file already exists, the file will be open
     # and a new line of results will be added at the end
     # of the file. 
-    result_file: 'metrics.txt'
+    result_file: /workspaces/JointSocialNavigation/results/metrics
 
 
     # Boolean to indicate whether the data recording must wait to 
