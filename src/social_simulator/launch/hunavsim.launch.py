@@ -123,7 +123,8 @@ def generate_launch_description():
     )
 
     gzclient = ExecuteProcess(
-        cmd=["vglrun", "-d", os.environ.get("DISPLAY", ":1"), "gzclient"],
+        cmd=["gzclient"],
+        # cmd=["vglrun", "-d", os.environ.get("DISPLAY", ":1"), "gzclient"], # CUDA 13.1
         output="screen",
         on_exit=Shutdown(),
         condition=UnlessCondition(headless),

@@ -33,7 +33,7 @@ def launch_setup(context, *args, **kwargs):
         parameters=[{'use_sim_time': use_sim_time},
             {'wrapper_pkg_name': 'hunav_gazebo_wrapper'},
         ],
-        prefix=f"vglrun -d {os.environ.get('DISPLAY', ':1')}",
+        # prefix=f"vglrun -d {os.environ.get('DISPLAY', ':1')}", # CUDA 13.1
     )
 
     # Load list of human goals from the simulation parameters
