@@ -676,7 +676,7 @@ class Navigator(Node):
         robot_position = np.array([transform.transform.translation.x, transform.transform.translation.y])
         goal_position = np.array([self._goal_point.point.x, self._goal_point.point.y])
         distance_to_goal = np.linalg.norm(robot_position - goal_position)
-        if distance_to_goal < 1.0:
+        if distance_to_goal < 0.3:
             self.get_logger().info('Reached final goal')
             self._goal_point = None
             self._global_plan_cells = []
