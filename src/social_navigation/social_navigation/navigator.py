@@ -154,13 +154,15 @@ class Navigator(Node):
         self._path_obstacle_inflation_radius = 0.6
         self._tracking_feedback_blend = 0.65
         self._tracking_min_lookahead = 0.35
-        self._tracking_plan_lookahead = 0.75
+        self._tracking_plan_lookahead_distance = 0.75
+        self._tracking_plan_lookahead_time = 0.5
         self._tracking_min_heading_speed_scale = 0.15
         self._tracking_goal_tolerance = 0.15
 
         self._mcts_plan_start_time = None
         self._mcts_action_plan = None
         self._mcts_predicted_robot_positions: np.ndarray | None = None
+        self._mcts_predicted_robot_orientations: np.ndarray | None = None
         self._mcts_tracking_state_idx = 0
 
         self.get_logger().info('Initialized successfully')
@@ -174,6 +176,7 @@ class Navigator(Node):
         self._mcts_plan_start_time = None
         self._mcts_action_plan = None
         self._mcts_predicted_robot_positions = None
+        self._mcts_predicted_robot_orientations = None
         self._mcts_tracking_state_idx = 0
 
     def _compute_tracking_command(
@@ -183,13 +186,14 @@ class Navigator(Node):
     ) -> tuple[float, float] | None:
         if not self._mcts_action_plan:
             return None
-        if self._mcts_predicted_robot_positions is None:
+        if self._mcts_predicted_robot_positions is None or self._mcts_predicted_robot_orientations is None:
             return None
-        if len(self._mcts_predicted_robot_positions) == 0:
+        if len(self._mcts_predicted_robot_positions) == 0 or len(self._mcts_predicted_robot_orientations) == 0:
             return None
 
         # Pure Pursuit tracking controller
         plan_points = self._mcts_predicted_robot_positions
+        plan_orientations = self._mcts_predicted_robot_orientations
         search_start = min(
             max(0, self._mcts_tracking_state_idx - 1),
             len(plan_points) - 1,
@@ -199,15 +203,20 @@ class Navigator(Node):
         nearest_idx = search_start + int(np.argmin(distances))
         self._mcts_tracking_state_idx = nearest_idx
 
+        dt = self._get_prediction_dt()
+        time_diff_limit = self._tracking_plan_lookahead_time + time.time() - self._mcts_plan_start_time
+        furthest_idx = int(time_diff_limit / dt)
+        furthest_idx = min(furthest_idx, len(self._mcts_action_plan) - 1)
         action_idx = min(nearest_idx, len(self._mcts_action_plan) - 1)
         target_idx = nearest_idx
         travelled = 0.0
-        for idx in range(nearest_idx, len(plan_points) - 1):
+        for idx in range(nearest_idx, furthest_idx):
             segment = float(np.linalg.norm(plan_points[idx + 1] - plan_points[idx]))
             travelled += segment
             target_idx = idx + 1
-            if travelled >= self._tracking_plan_lookahead:
+            if travelled >= self._tracking_plan_lookahead_distance:
                 break
+
         target_position = plan_points[target_idx]
         target_vector = target_position - robot_position
         target_distance = float(np.linalg.norm(target_vector))
@@ -221,7 +230,7 @@ class Navigator(Node):
         if target_distance > 1e-6:
             target_heading = math.atan2(float(target_vector[1]), float(target_vector[0]))
         else:
-            target_heading = robot_yaw
+            target_heading = plan_orientations[target_idx]
         heading_error = normalize_angle(target_heading - robot_yaw)
 
         heading_speed_scale = float(
@@ -789,9 +798,13 @@ class Navigator(Node):
             marker_goals.extend([state.positions[0].copy() for state in states])
             self._publish_child_state_marker(marker_goals)
 
+            goal_orientations = [robot_yaw]
+            goal_orientations.extend([state.orientations[0].copy() for state in states])
+
             #print([action[0] for action in actions])
             self._mcts_action_plan = actions
             self._mcts_predicted_robot_positions = np.asarray(marker_goals, dtype=np.float32)
+            self._mcts_predicted_robot_orientations = np.asarray(goal_orientations, dtype=np.float32)
             self._mcts_tracking_state_idx = 0
             self._mcts_plan_start_time = mcts_plan_start_time
 
