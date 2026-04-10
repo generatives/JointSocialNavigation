@@ -5,6 +5,7 @@ from typing import List
 
 import numpy as np
 
+from hunav_msgs.msg._agent import Agent
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
@@ -53,6 +54,10 @@ class EvaluationRunner(Node):
             10,
         )
 
+        self.robot_sub = self.create_subscription(
+            Agent, "robot_states", self.robot_callback, 1
+        )
+
         self.start_timer = self.create_timer(0.5, self.start_evaluation)
         self.stop_timer = self.create_timer(60.0 * TIME_FACTOR, self.stop_evaluation)
 
@@ -97,9 +102,22 @@ class EvaluationRunner(Node):
     def evaluation_done_callback(self, result):
         self.get_logger().info('Evaluation Completed')
 
+    def robot_callback(self, msg: Agent):
+        goal_x = self.get_parameter('goal_x').get_parameter_value().double_value
+        goal_y = self.get_parameter('goal_y').get_parameter_value().double_value
+
+        robot_x = msg.position.position.x
+        robot_y = msg.position.position.y
+
+        distance = math.sqrt((robot_x - goal_x) ** 2 + (robot_y - goal_y) ** 2)
+
+        if distance < 0.5:
+            self.stop_evaluation()
+
+
     def stop_evaluation(self):
         self.get_logger().info('Stopping Evaluation')
-        self.stop_evaluation_client(Empty.Request())
+        self.stop_evaluation_client.call_async(Empty.Request())
         self.stop_timer.cancel()
         self.destroy_node()
         

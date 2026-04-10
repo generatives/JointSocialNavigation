@@ -39,6 +39,10 @@ def quat_to_yaw(x: float, y: float, z: float, w: float) -> float:
     cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
     return math.atan2(siny_cosp, cosy_cosp)
 
+
+def normalize_angle(angle: float) -> float:
+    return math.atan2(math.sin(angle), math.cos(angle))
+
 class Navigator(Node):
 
     def __init__(self):
@@ -123,7 +127,7 @@ class Navigator(Node):
             10,
         )
         self.mcts_child_state_marker_publisher = self.create_publisher(
-            Marker,
+            MarkerArray,
             '/mcts_child_state',
             10,
         )
@@ -143,9 +147,23 @@ class Navigator(Node):
         self._global_plan_period = 1.0
         self._local_waypoint_lookahead = 2.0
         self._last_global_plan_time = None
+        self._tree_depth = 6
+        self._robot_speed = 1.0
+        self._robot_angular_velocity_limit = 1.82
+        self._robot_radius = 0.5
+        self._path_obstacle_inflation_radius = 0.6
+        self._tracking_feedback_blend = 0.65
+        self._tracking_min_lookahead = 0.35
+        self._tracking_plan_lookahead_distance = 0.75
+        self._tracking_plan_lookahead_time = 0.5
+        self._tracking_min_heading_speed_scale = 0.15
+        self._tracking_goal_tolerance = 0.15
 
         self._mcts_plan_start_time = None
         self._mcts_action_plan = None
+        self._mcts_predicted_robot_positions: np.ndarray | None = None
+        self._mcts_predicted_robot_orientations: np.ndarray | None = None
+        self._mcts_tracking_state_idx = 0
 
         self.get_logger().info('Initialized successfully')
 
@@ -154,24 +172,133 @@ class Navigator(Node):
         self.robot_linear_velocity = msg.twist.twist.linear.x
         self.robot_angular_velocity = msg.twist.twist.angular.z
 
+    def _clear_mcts_plan(self) -> None:
+        self._mcts_plan_start_time = None
+        self._mcts_action_plan = None
+        self._mcts_predicted_robot_positions = None
+        self._mcts_predicted_robot_orientations = None
+        self._mcts_tracking_state_idx = 0
+
+    def _compute_tracking_command(
+        self,
+        robot_position: np.ndarray,
+        robot_yaw: float,
+    ) -> tuple[float, float] | None:
+        if not self._mcts_action_plan:
+            return None
+        if self._mcts_predicted_robot_positions is None or self._mcts_predicted_robot_orientations is None:
+            return None
+        if len(self._mcts_predicted_robot_positions) == 0 or len(self._mcts_predicted_robot_orientations) == 0:
+            return None
+
+        # Pure Pursuit tracking controller
+        plan_points = self._mcts_predicted_robot_positions
+        plan_orientations = self._mcts_predicted_robot_orientations
+        search_start = min(
+            max(0, self._mcts_tracking_state_idx - 1),
+            len(plan_points) - 1,
+        )
+        remaining_points = plan_points[search_start:]
+        distances = np.linalg.norm(remaining_points - robot_position, axis=1)
+        nearest_idx = search_start + int(np.argmin(distances))
+        self._mcts_tracking_state_idx = nearest_idx
+
+        dt = self._get_prediction_dt()
+        time_diff_limit = self._tracking_plan_lookahead_time + time.time() - self._mcts_plan_start_time
+        furthest_idx = int(time_diff_limit / dt)
+        furthest_idx = min(furthest_idx, len(self._mcts_action_plan) - 1)
+        action_idx = min(nearest_idx, len(self._mcts_action_plan) - 1)
+        target_idx = nearest_idx
+        travelled = 0.0
+        for idx in range(nearest_idx, furthest_idx):
+            segment = float(np.linalg.norm(plan_points[idx + 1] - plan_points[idx]))
+            travelled += segment
+            target_idx = idx + 1
+            if travelled >= self._tracking_plan_lookahead_distance:
+                break
+
+        target_position = plan_points[target_idx]
+        target_vector = target_position - robot_position
+        target_distance = float(np.linalg.norm(target_vector))
+
+        if action_idx == len(self._mcts_action_plan) - 1 and target_distance < self._tracking_goal_tolerance:
+            return 0.0, 0.0
+
+        nominal_linear, nominal_angular = self._mcts_action_plan[action_idx][0]
+        commanded_linear = max(0.0, float(nominal_linear))
+
+        if target_distance > 1e-6:
+            target_heading = math.atan2(float(target_vector[1]), float(target_vector[0]))
+        else:
+            target_heading = plan_orientations[target_idx]
+        heading_error = normalize_angle(target_heading - robot_yaw)
+
+        heading_speed_scale = float(
+            np.clip(
+                1.0 - abs(heading_error) / math.pi,
+                self._tracking_min_heading_speed_scale,
+                1.0,
+            )
+        )
+        commanded_linear *= heading_speed_scale
+        if target_distance < self._tracking_min_lookahead:
+            commanded_linear *= target_distance / self._tracking_min_lookahead
+
+        lookahead = max(target_distance, self._tracking_min_lookahead)
+        if commanded_linear > 1e-3:
+            pure_pursuit_angular = (
+                2.0 * commanded_linear * math.sin(heading_error) / lookahead
+            )
+        else:
+            pure_pursuit_angular = 1.2 * heading_error
+
+        commanded_angular = (
+            (1.0 - self._tracking_feedback_blend) * float(nominal_angular)
+            + self._tracking_feedback_blend * pure_pursuit_angular
+        )
+        commanded_angular = float(
+            np.clip(
+                commanded_angular,
+                -self._robot_angular_velocity_limit,
+                self._robot_angular_velocity_limit,
+            )
+        )
+        return commanded_linear, commanded_angular
+
     def execute_mcts_plan_callback(self):
-        if self._mcts_plan_start_time is not None and self._mcts_action_plan is not None:
-            dt = self._get_prediction_dt() * TIME_FACTOR
-            current_time = time.time()
-            action_idx = int((current_time - self._mcts_plan_start_time) / dt)
-            if action_idx >= len(self._mcts_action_plan):
-                #print("Done plan, stopping")
-                self.send_cmd_vel(0.0, 0.0)
-            else:
-                lin_vel, ang_vel = self._mcts_action_plan[action_idx][0]
-                #print(f"Executing action {action_idx}: {lin_vel}, {ang_vel}")
-                self.send_cmd_vel(lin_vel, ang_vel)
+        if self._mcts_action_plan is None:
+            return
+
+        transform = self._lookup_robot_transform()
+        if transform is None:
+            return
+
+        robot_position = np.array(
+            [
+                transform.transform.translation.x,
+                transform.transform.translation.y,
+            ],
+        )
+        robot_yaw = quat_to_yaw(
+            transform.transform.rotation.x,
+            transform.transform.rotation.y,
+            transform.transform.rotation.z,
+            transform.transform.rotation.w,
+        )
+        command = self._compute_tracking_command(robot_position, robot_yaw)
+        if command is None:
+            self.send_cmd_vel(0.0, 0.0)
+            return
+
+        lin_vel, ang_vel = command
+        self.send_cmd_vel(lin_vel, ang_vel)
 
     def clicked_point_callback(self, msg: PointStamped):
         self.get_logger().info('I heard clicked goal: "%s"' % msg)
         self._goal_point = msg
         self._global_plan_cells = []
         self._last_global_plan_time = None
+        self._clear_mcts_plan()
         self._plan(True)
 
     def evaluation_goal_set_callback(self, msg: PoseStamped):
@@ -189,6 +316,7 @@ class Navigator(Node):
         )
         self._global_plan_cells = []
         self._last_global_plan_time = None
+        self._clear_mcts_plan()
         self._plan(True)
 
 
@@ -360,6 +488,7 @@ class Navigator(Node):
         )
         self._global_plan_cells = []
         self._last_global_plan_time = None
+        self._clear_mcts_plan()
 
     def _lookup_robot_transform(self):
         try:
@@ -424,30 +553,65 @@ class Navigator(Node):
         marker.color.b = 0.1
         self.local_waypoint_publisher.publish(marker)
 
-    def _publish_child_state_marker(self, goals: List[np.ndarray] | None) -> None:
-        marker = Marker()
-        marker.header.frame_id = "map"
-        marker.header.stamp = self.get_clock().now().to_msg()
-        marker.ns = "mcts_child_state"
-        marker.id = 0
+    def _publish_child_state_marker(
+        self,
+        marker_states: List[tuple[float, float, float]] | None,
+    ) -> None:
+        marker_array = MarkerArray()
 
-        if goals is None:
-            marker.action = Marker.DELETE
-            self.mcts_child_state_marker_publisher.publish(marker)
+        clear_marker = Marker()
+        clear_marker.header.frame_id = "map"
+        clear_marker.header.stamp = self.get_clock().now().to_msg()
+        clear_marker.action = Marker.DELETEALL
+        marker_array.markers.append(clear_marker)
+
+        if marker_states is None:
+            self.mcts_child_state_marker_publisher.publish(marker_array)
             return
 
-        marker.type = Marker.LINE_STRIP
-        marker.action = Marker.ADD
-        marker.points = [
-            Point(x=goal[0], y=goal[1], z=0.2) for goal in goals
-        ]
-        marker.scale.x = 0.05
+        path_marker = Marker()
+        path_marker.header.frame_id = "map"
+        path_marker.header.stamp = clear_marker.header.stamp
+        path_marker.ns = "mcts_child_state_path"
+        path_marker.id = 0
+        path_marker.type = Marker.LINE_STRIP
+        path_marker.action = Marker.ADD
+        path_marker.points = []
+        path_marker.scale.x = 0.05
+        path_marker.color.a = 0.95
+        path_marker.color.r = 0.1
+        path_marker.color.g = 0.1
+        path_marker.color.b = 0.95
+        
+        for idx, (x, y, yaw) in enumerate(marker_states):
+            path_marker.points.append(Point(x=x, y=y, z=0.2))
 
-        marker.color.a = 0.95
-        marker.color.r = 0.1
-        marker.color.g = 0.1
-        marker.color.b = 0.95
-        self.mcts_child_state_marker_publisher.publish(marker)
+            heading_marker = Marker()
+            heading_marker.header.frame_id = "map"
+            heading_marker.header.stamp = clear_marker.header.stamp
+            heading_marker.ns = "mcts_child_state_heading"
+            heading_marker.id = idx
+            heading_marker.type = Marker.ARROW
+            heading_marker.action = Marker.ADD
+            heading_marker.pose.position.x = x
+            heading_marker.pose.position.y = y
+            heading_marker.pose.position.z = 0.28
+            heading_marker.pose.orientation.x = 0.0
+            heading_marker.pose.orientation.y = 0.0
+            heading_marker.pose.orientation.z = math.sin(yaw * 0.5)
+            heading_marker.pose.orientation.w = math.cos(yaw * 0.5)
+            heading_marker.scale.x = 0.30
+            heading_marker.scale.y = 0.05
+            heading_marker.scale.z = 0.05
+            heading_marker.color.a = 0.95
+            heading_marker.color.r = 1.0
+            heading_marker.color.g = 0.0
+            heading_marker.color.b = 0.0
+            marker_array.markers.append(heading_marker)
+
+        marker_array.markers.append(path_marker)
+
+        self.mcts_child_state_marker_publisher.publish(marker_array)
 
     def _update_global_plan(self, robot_position: np.ndarray) -> None:
         if self._goal_point is None:
@@ -475,7 +639,16 @@ class Navigator(Node):
             self._last_global_plan_time = now
             return
 
-        inflated_grid = inflate_grid(self._scenario_map.grid, int(60 / 5))
+        inflated_cells = max(
+            1,
+            int(
+                math.ceil(
+                    self._path_obstacle_inflation_radius
+                    / max(self._scenario_map.resolution, 1e-6)
+                )
+            ),
+        )
+        inflated_grid = inflate_grid(self._scenario_map.grid, inflated_cells)
         path_cells = a_star(inflated_grid, start_cell, goal_cell)
         #path_cells = simplify_path(path_cells)
         self._global_plan_cells = path_cells
@@ -538,13 +711,12 @@ class Navigator(Node):
         robot_position = np.array([transform.transform.translation.x, transform.transform.translation.y])
         goal_position = np.array([self._goal_point.point.x, self._goal_point.point.y])
         distance_to_goal = np.linalg.norm(robot_position - goal_position)
-        if distance_to_goal < 1.0:
+        if distance_to_goal < 0.3:
             self.get_logger().info('Reached final goal')
             self._goal_point = None
             self._global_plan_cells = []
             self._last_global_plan_time = None
-            self._mcts_action_plan = None
-            self._mcts_plan_start_time = None
+            self._clear_mcts_plan()
             self._publish_global_path([])
             self._publish_local_waypoint(None)
             self._publish_child_state_marker(None)
@@ -558,14 +730,15 @@ class Navigator(Node):
         local_waypoint = self._select_local_waypoint(robot_position)
         if local_waypoint is None:
             self.get_logger().warn('No global A* path available; skipping local MCTS plan.')
+            self._clear_mcts_plan()
             self.send_cmd_vel(0.0, 0.0)
             return
         
-        tree_depth = 6
+        tree_depth = self._tree_depth
 
-        robot_speed = 1.0
-        robot_angular_velocity = 1.82
-        robot_radius = 0.5
+        robot_speed = self._robot_speed
+        robot_angular_velocity = self._robot_angular_velocity_limit
+        robot_radius = self._robot_radius
         dt = self._get_prediction_dt(tree_depth, robot_speed)
         robot_yaw = quat_to_yaw(
             transform.transform.rotation.x,
@@ -656,12 +829,21 @@ class Navigator(Node):
         mcts_elapsed_ms = (time.perf_counter() - mcts_start_time) * 1000.0
         
         if actions is not None and states is not None:
-            marker_goals = [robot_position]
-            marker_goals.extend([state.positions[0].copy() for state in states])
-            self._publish_child_state_marker(marker_goals)
+            marker_states = [(float(robot_position[0]), float(robot_position[1]), float(robot_yaw))]
+            marker_states.extend(
+                (float(state.positions[0][0]),float(state.positions[0][1]), float(state.orientations[0]))
+                for state in states
+            )
+            self._publish_child_state_marker(marker_states)
 
             #print([action[0] for action in actions])
             self._mcts_action_plan = actions
+
+            robot_states = np.array(marker_states)
+            self._mcts_predicted_robot_positions = robot_states[:, [0, 1]]
+            self._mcts_predicted_robot_orientations = robot_states[:, [2]]
+
+            self._mcts_tracking_state_idx = 0
             self._mcts_plan_start_time = mcts_plan_start_time
 
             total_plan_elapsed_ms = (time.perf_counter() - plan_start_time) * 1000.0
@@ -671,6 +853,7 @@ class Navigator(Node):
             )
         else:
             self.get_logger().warn('MCTS returned no action.')
+            self._clear_mcts_plan()
             self.send_cmd_vel(0.0, 0.0)
 
 

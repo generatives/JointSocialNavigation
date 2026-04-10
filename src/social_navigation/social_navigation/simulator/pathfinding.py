@@ -27,12 +27,17 @@ def a_star(grid: np.ndarray, start: tuple[int, int], goal: tuple[int, int]) -> l
     g_score = {start: 0.0}
 
     def heuristic(a: tuple[int, int], b: tuple[int, int]) -> float:
-        return abs(a[0] - b[0]) + abs(a[1] - b[1])
+        return np.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
 
     neighbors = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+    closed_set = set()
 
     while open_heap:
         _, current = heapq.heappop(open_heap)
+
+        if current in closed_set:
+            continue
+
         if current == goal:
             path = [current]
             while current in came_from:
@@ -40,8 +45,13 @@ def a_star(grid: np.ndarray, start: tuple[int, int], goal: tuple[int, int]) -> l
                 path.append(current)
             path.reverse()
             return path
+        
+        closed_set.add(current)
 
         for dx, dy in neighbors:
+            if (dx, dy) in closed_set:
+                continue
+
             nxt = (current[0] + dx, current[1] + dy)
             if nxt[0] < 0 or nxt[0] >= w or nxt[1] < 0 or nxt[1] >= h:
                 continue

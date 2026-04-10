@@ -623,15 +623,14 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /mcts_local_waypoint
       Value: true
-    - Class: rviz_default_plugins/Marker
+    - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Name: Marker
+      Name: MCTS Child States
       Namespaces:
         {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
-        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /mcts_child_state
