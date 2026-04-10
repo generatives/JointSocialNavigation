@@ -36,7 +36,6 @@ def a_star(grid: np.ndarray, start: tuple[int, int], goal: tuple[int, int]) -> l
         _, current = heapq.heappop(open_heap)
 
         if current in closed_set:
-            print("Current already visited")
             continue
 
         if current == goal:
