@@ -127,7 +127,7 @@ class Navigator(Node):
             10,
         )
         self.mcts_child_state_marker_publisher = self.create_publisher(
-            Marker,
+            MarkerArray,
             '/mcts_child_state',
             10,
         )
@@ -553,30 +553,65 @@ class Navigator(Node):
         marker.color.b = 0.1
         self.local_waypoint_publisher.publish(marker)
 
-    def _publish_child_state_marker(self, goals: List[np.ndarray] | None) -> None:
-        marker = Marker()
-        marker.header.frame_id = "map"
-        marker.header.stamp = self.get_clock().now().to_msg()
-        marker.ns = "mcts_child_state"
-        marker.id = 0
+    def _publish_child_state_marker(
+        self,
+        marker_states: List[tuple[float, float, float]] | None,
+    ) -> None:
+        marker_array = MarkerArray()
 
-        if goals is None:
-            marker.action = Marker.DELETE
-            self.mcts_child_state_marker_publisher.publish(marker)
+        clear_marker = Marker()
+        clear_marker.header.frame_id = "map"
+        clear_marker.header.stamp = self.get_clock().now().to_msg()
+        clear_marker.action = Marker.DELETEALL
+        marker_array.markers.append(clear_marker)
+
+        if marker_states is None:
+            self.mcts_child_state_marker_publisher.publish(marker_array)
             return
 
-        marker.type = Marker.LINE_STRIP
-        marker.action = Marker.ADD
-        marker.points = [
-            Point(x=goal[0], y=goal[1], z=0.2) for goal in goals
-        ]
-        marker.scale.x = 0.05
+        path_marker = Marker()
+        path_marker.header.frame_id = "map"
+        path_marker.header.stamp = clear_marker.header.stamp
+        path_marker.ns = "mcts_child_state_path"
+        path_marker.id = 0
+        path_marker.type = Marker.LINE_STRIP
+        path_marker.action = Marker.ADD
+        path_marker.points = []
+        path_marker.scale.x = 0.05
+        path_marker.color.a = 0.95
+        path_marker.color.r = 0.1
+        path_marker.color.g = 0.1
+        path_marker.color.b = 0.95
+        
+        for idx, (x, y, yaw) in enumerate(marker_states):
+            path_marker.points.append(Point(x=x, y=y, z=0.2))
 
-        marker.color.a = 0.95
-        marker.color.r = 0.1
-        marker.color.g = 0.1
-        marker.color.b = 0.95
-        self.mcts_child_state_marker_publisher.publish(marker)
+            heading_marker = Marker()
+            heading_marker.header.frame_id = "map"
+            heading_marker.header.stamp = clear_marker.header.stamp
+            heading_marker.ns = "mcts_child_state_heading"
+            heading_marker.id = idx
+            heading_marker.type = Marker.ARROW
+            heading_marker.action = Marker.ADD
+            heading_marker.pose.position.x = x
+            heading_marker.pose.position.y = y
+            heading_marker.pose.position.z = 0.28
+            heading_marker.pose.orientation.x = 0.0
+            heading_marker.pose.orientation.y = 0.0
+            heading_marker.pose.orientation.z = math.sin(yaw * 0.5)
+            heading_marker.pose.orientation.w = math.cos(yaw * 0.5)
+            heading_marker.scale.x = 0.30
+            heading_marker.scale.y = 0.05
+            heading_marker.scale.z = 0.05
+            heading_marker.color.a = 0.95
+            heading_marker.color.r = 1.0
+            heading_marker.color.g = 0.0
+            heading_marker.color.b = 0.0
+            marker_array.markers.append(heading_marker)
+
+        marker_array.markers.append(path_marker)
+
+        self.mcts_child_state_marker_publisher.publish(marker_array)
 
     def _update_global_plan(self, robot_position: np.ndarray) -> None:
         if self._goal_point is None:
@@ -794,17 +829,20 @@ class Navigator(Node):
         mcts_elapsed_ms = (time.perf_counter() - mcts_start_time) * 1000.0
         
         if actions is not None and states is not None:
-            marker_goals = [robot_position]
-            marker_goals.extend([state.positions[0].copy() for state in states])
-            self._publish_child_state_marker(marker_goals)
-
-            goal_orientations = [robot_yaw]
-            goal_orientations.extend([state.orientations[0].copy() for state in states])
+            marker_states = [(float(robot_position[0]), float(robot_position[1]), float(robot_yaw))]
+            marker_states.extend(
+                (float(state.positions[0][0]),float(state.positions[0][1]), float(state.orientations[0]))
+                for state in states
+            )
+            self._publish_child_state_marker(marker_states)
 
             #print([action[0] for action in actions])
             self._mcts_action_plan = actions
-            self._mcts_predicted_robot_positions = np.asarray(marker_goals, dtype=np.float32)
-            self._mcts_predicted_robot_orientations = np.asarray(goal_orientations, dtype=np.float32)
+
+            robot_states = np.array(marker_states)
+            self._mcts_predicted_robot_positions = robot_states[:, [0, 1]]
+            self._mcts_predicted_robot_orientations = robot_states[:, [2]]
+
             self._mcts_tracking_state_idx = 0
             self._mcts_plan_start_time = mcts_plan_start_time
 
