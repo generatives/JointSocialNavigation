@@ -68,12 +68,12 @@ class MCTSGameState(GameStateProtocol):
 
         linear_change = self.config.robot_max_linear_accel * self.config.dt
         new_velocity = np.clip(linear_velocity,
-                                robot_linear_velocity + linear_change,
-                                robot_linear_velocity - linear_change)
+                                robot_linear_velocity - linear_change,
+                                robot_linear_velocity + linear_change)
         angular_change = self.config.robot_max_angular_accel * self.config.dt
         new_angular_velocity = np.clip(rotational_velocity,
-                                robot_angular_velocity + angular_change,
-                                robot_angular_velocity - angular_change)
+                                robot_angular_velocity - angular_change,
+                                robot_angular_velocity + angular_change)
 
         x_new, y_new, robot_new_orientation = self._propagate_unicycle(
             robot_position[0],
