@@ -1,0 +1,77 @@
+hunav_loader:
+  ros__parameters:
+    world: narrower_hallway
+    map: narrower_hallway
+    publish_people: true
+    robot:
+      init_pose:
+        x: -8.381537
+        y: 0.034843
+        z: 1.250000
+        yaw: 0
+      goal:
+        x: 8.377087
+        y: -0.104486
+    agents:
+      - agent_1
+      - agent_2
+    agent_1:
+      id: 1
+      skin: 0
+      group_id: -1
+      max_vel: 1.35
+      radius: 0.4
+      behavior:
+        type: 1
+        configuration: 0
+        duration: 40.0
+        once: true
+        vel: 1.0
+        dist: 4.5
+        goal_force_factor: 2.0
+        obstacle_force_factor: 0.0
+        social_force_factor: 5.0
+        other_force_factor: 0.0
+      init_pose:
+        x: 5.660194
+        y: 0.5
+        z: 1.250000
+        h: 0.0
+      goal_radius: 0.3
+      cyclic_goals: false
+      goals:
+        - g0
+      g0:
+        x: -8.133264
+        y: 0.5
+        h: 1.250000
+    agent_2:
+      id: 2
+      skin: 0
+      group_id: -1
+      max_vel: 1.35
+      radius: 0.4
+      behavior:
+        type: 1
+        configuration: 0
+        duration: 40.0
+        once: true
+        vel: 1.0
+        dist: 4.5
+        goal_force_factor: 2.0
+        obstacle_force_factor: 0.0
+        social_force_factor: 5.0
+        other_force_factor: 0.0
+      init_pose:
+        x: 8.307423
+        y: 0.5
+        z: 1.250000
+        h: 0.0
+      goal_radius: 0.3
+      cyclic_goals: false
+      goals:
+        - g0
+      g0:
+        x: -8.307423
+        y: 0.5
+        h: 1.250000
