@@ -133,7 +133,35 @@ ros2 service call /hunav_stop_recording std_srvs/srv/Empty "{}"
 ```
 
 
-Teleop command:
+## Narrower Hallway
+
+### JointMCTS
+
+```
+ros2 launch social_simulator social_simulator.launch.py world:=narrower_hallway.world scenario:=narrower_hallway/agents_2_towards_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/evaluation_goal_set'
+```
+
+```
+ros2 launch social_simulator evaluation.launch.py scenario:=narrower_hallway/agents_2_towards_robot.yaml experiment_tag:=test_run run_id:=0
+```
+
+```
+ros2 launch hunav_evaluator hunav_evaluator_launch.py metrics_file:=/workspaces/JointSocialNavigation/src/social_simulator/config/metrics.yaml
+```
+
+### Nav2 
+
+```
+ros2 launch social_simulator social_simulator.launch.py world:=narrower_hallway.world scenario:=narrower_hallway/agents_2_towards_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/goal_pose'
+```
+
+```
+ros2 launch social_simulator social_simulator.launch.py world:=narrower_hallway.world scenario:=narrower_hallway/agents_2_towards_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/goal_pose' use_humans:=False
+```
+
+
+## Teleop command
+
 ```
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
 ```

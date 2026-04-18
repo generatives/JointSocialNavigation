@@ -7,6 +7,69 @@ import numpy as np
 
 from .constants import FREE, WALL
 
+def _edt_squared_1d(f: np.ndarray) -> np.ndarray:
+    """Felzenszwalb-Huttenlocher 1D squared Euclidean distance transform.
+    Input: 1D array of parabola heights (0 at sources, +inf elsewhere).
+    Output: squared distance from each index to the nearest source."""
+    n = f.shape[0]
+
+    first_finite = -1
+    for i in range(n):
+        if np.isfinite(f[i]):
+            first_finite = i
+            break
+    if first_finite == -1:
+        return np.full(n, np.inf, dtype=np.float64)
+
+    v = np.empty(n, dtype=np.int64)
+    z = np.empty(n + 1, dtype=np.float64)
+    v[0] = first_finite
+    z[0] = -np.inf
+    z[1] = np.inf
+    k = 0
+
+    for q in range(first_finite + 1, n):
+        fq = f[q]
+        if not np.isfinite(fq):
+            continue
+        while True:
+            vk = v[k]
+            s = ((fq + q * q) - (f[vk] + vk * vk)) / (2.0 * (q - vk))
+            if s > z[k]:
+                k += 1
+                v[k] = q
+                z[k] = s
+                z[k + 1] = np.inf
+                break
+            if k == 0:
+                v[0] = q
+                z[1] = np.inf
+                break
+            k -= 1
+
+    d = np.empty(n, dtype=np.float64)
+    j = 0
+    for q in range(n):
+        while z[j + 1] < q:
+            j += 1
+        vj = v[j]
+        d[q] = (q - vj) * (q - vj) + f[vj]
+    return d
+
+
+def _edt_squared_2d(wall_mask: np.ndarray) -> np.ndarray:
+    """Separable 2D squared EDT: 0 at wall cells, squared distance elsewhere."""
+    h, w = wall_mask.shape
+    f = np.where(wall_mask, 0.0, np.inf)
+    # column pass
+    for x in range(w):
+        f[:, x] = _edt_squared_1d(f[:, x])
+    # row pass
+    for y in range(h):
+        f[y, :] = _edt_squared_1d(f[y, :])
+    return f
+
+
 def inflate_grid(grid, cells):
     cells = max(0, int(cells))
     if cells == 0:
@@ -33,6 +96,25 @@ class ScenarioMap:
     resolution: float = 1.0
     origin_x: float = 0.0
     origin_y: float = 0.0
+    _wall_distance_field: np.ndarray | None = None
+
+    @property
+    def wall_distance_field(self) -> np.ndarray:
+        """Per-cell distance (meters) from the cell centre to the nearest
+        wall-cell edge. Computed lazily via a separable Euclidean distance
+        transform so wall proximity queries during MCTS become O(1) lookups
+        instead of O(radius²) cell scans."""
+        if self._wall_distance_field is None:
+            wall_mask = self.grid == WALL
+            if not np.any(wall_mask):
+                edt_cells = np.full(self.grid.shape, np.inf, dtype=np.float64)
+            else:
+                edt_cells = _edt_squared_2d(wall_mask)
+                edt_cells = np.sqrt(edt_cells)
+
+            field = np.maximum(edt_cells * float(self.resolution) - 0.5 * float(self.resolution), 0.0)
+            self._wall_distance_field = field.astype(np.float32)
+        return self._wall_distance_field
 
     @staticmethod
     def build_empty() -> "ScenarioMap":

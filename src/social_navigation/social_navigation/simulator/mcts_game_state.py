@@ -5,7 +5,7 @@ import numpy as np
 
 from social_navigation.mcts.decoupled_mcts import Action, GameStateProtocol, MCTSConfig, ValueMap
 from social_navigation.simulator.constants import WALL
-from social_navigation.simulator.physics import collides_with_walls
+from social_navigation.simulator.physics import collides_with_walls, distance_to_nearest_wall
 from social_navigation.simulator.scenario_map import ScenarioMap
 
 SAMPLE_DISTANT_ACTIONS = True
@@ -227,7 +227,7 @@ class MCTSGameState(GameStateProtocol):
             new_positions[0, 1] = y_new
             free_space = np.array([
                 not collides_with_walls(
-                    self.config.map.world_to_cell(new_positions[i, :]),
+                    new_positions[i, :],
                     self.config.robot_radius if i == 0 else self.config.human_radius,
                     self.config.map)
                 for i in range(self.config.mcts_config.num_actors)
@@ -246,10 +246,23 @@ class MCTSGameState(GameStateProtocol):
     
     def _get_invalid_state(self) -> bool:
         if self._collision_occured is None:
+            radii = np.array(
+                [self.config.robot_radius] + [self.config.human_radius] * (self.config.mcts_config.num_actors - 1),
+                dtype=np.float32,
+            )
             self._collision_mask = np.array([
-                not self.config.map.position_is_free(self.positions[i, :])
+                collides_with_walls(self.positions[i, :], float(radii[i]), self.config.map)
                 for i in range(self.config.mcts_config.num_actors)
             ])
+
+            if self.positions.shape[0] > 1:
+                robot_distances = np.linalg.norm(self.positions[1:] - self.positions[0], axis=1)
+                robot_human_overlap = robot_distances < (self.config.robot_radius + self.config.human_radius)
+                if np.any(robot_human_overlap):
+                    self._collision_mask[0] = True
+                    overlapping_human_indices = np.flatnonzero(robot_human_overlap) + 1
+                    self._collision_mask[overlapping_human_indices] = True
+
             self._collision_occured = any(self._collision_mask)
 
         return self._collision_mask, self._collision_occured
@@ -284,31 +297,100 @@ class MCTSGameState(GameStateProtocol):
     def _uncomfortable_distance_meter_score(self) -> np.ndarray:
         robot_position = self.positions[0, :]
         other_positions = self.positions[1:, :]
-        distances = np.linalg.norm(other_positions - robot_position, axis=1)
-        is_uncomfortable = distances < self.config.uncomfortable_distance
-        costs = np.zeros(other_positions.shape[0])
-        costs[is_uncomfortable] = self.config.robot_speed * self.config.dt
-        total_cost = np.sum(costs)
+        if other_positions.shape[0] == 0:
+            return 0.0
 
-        return -total_cost
+        distances = np.linalg.norm(other_positions - robot_position, axis=1)
+        contact_distance = self.config.robot_radius + self.config.human_radius
+        comfort_span = max(self.config.uncomfortable_distance - contact_distance, 1e-6)
+        shortfall = np.clip(
+            (self.config.uncomfortable_distance - distances) / comfort_span,
+            0.0,
+            1.0,
+        )
+        # Quadratic gradient: 0 at comfort boundary, 1 at contact. Provides
+        # a smooth repulsive signal inside the personal-space zone instead
+        # of a flat per-step penalty.
+        per_human_cost = shortfall ** 2 * self.config.robot_speed * self.config.dt
+        return -float(np.sum(per_human_cost))
+
+    def _passing_side_score(self) -> float:
+        """Reward robot for being on the human's left during head-on approaches
+        (keep-right social convention). Vectorised over all humans."""
+        num_humans = self.positions.shape[0] - 1
+        if num_humans == 0:
+            return 0.0
+
+        # Engage well before personal-space entry so the lateral nudge starts
+        # during the approach, not after the human is already close.
+        engagement_range = max(self.config.uncomfortable_distance * 2.0, 3.5)
+
+        robot_position = self.positions[0, :]
+        human_positions = self.positions[1:, :]
+        human_orientations = self.orientations[1:]
+        human_speeds = self.linear_velocities[1:]
+
+        rel = robot_position[None, :] - human_positions
+        distances = np.linalg.norm(rel, axis=1)
+        eps = 1e-6
+        safe = np.maximum(distances, eps)
+        rel_unit = rel / safe[:, None]
+
+        cos_h = np.cos(human_orientations)
+        sin_h = np.sin(human_orientations)
+        human_forward = np.stack([cos_h, sin_h], axis=1)
+        human_left = np.stack([-sin_h, cos_h], axis=1)
+
+        approach_alignment = np.sum(human_forward * rel_unit, axis=1)
+        lateral = np.sum(rel * human_left, axis=1)
+
+        active = (
+            (distances > eps)
+            & (distances <= engagement_range)
+            & (human_speeds >= 0.2)
+            & (approach_alignment > 0.2)
+        )
+        if not np.any(active):
+            return 0.0
+
+        engagement_weight = (1.0 - distances / engagement_range) * approach_alignment
+        lateral_scale = max(self.config.robot_radius + self.config.human_radius, 0.3)
+        side_signal = np.tanh(lateral / lateral_scale)
+
+        per_human = np.where(active, engagement_weight * side_signal, 0.0)
+        return float(np.sum(per_human)) * self.config.robot_speed * self.config.dt
+
+    def _forward_progress_score(self) -> float:
+        """Per-step reward for velocity projected onto the direction to goal.
+        Keeps the robot moving (stopping yields 0) and prefers motion that
+        actually closes distance over purely lateral motion."""
+        robot_position = self.positions[0, :]
+        goal_position = self.agent_goal_positions[0, :]
+        to_goal = goal_position - robot_position
+        dist = float(np.linalg.norm(to_goal))
+        if dist < 1e-6:
+            return 0.0
+        goal_dir = to_goal / dist
+
+        speed = float(self.linear_velocities[0])
+        heading = float(self.orientations[0])
+        velocity = speed * np.array([math.cos(heading), math.sin(heading)], dtype=np.float32)
+        return float(np.dot(goal_dir, velocity)) * self.config.dt
     
     def _near_wall_meter_score(self) -> np.ndarray:
         robot_position = self.positions[0, :]
-        map = self.config.map
-        x, y = map.world_to_cell(robot_position)
+        desired_clearance = self.config.robot_radius + 0.25
+        clearance = distance_to_nearest_wall(
+            robot_position,
+            self.config.map,
+            max_search_distance=desired_clearance,
+        )
+        if clearance >= desired_clearance:
+            return 0.0
 
-        x = x - 1
-        y = y - 1
-
-        start_x = np.clip(x, 0, map.width)
-        end_x = np.clip(x+3, 0, map.width)
-
-        start_y = np.clip(y, 0, map.height)
-        end_y = np.clip(y+3, 0, map.height)
-
-        num_cells = 1.0 if map.wall_cells_in_range((start_x, start_y), (end_x, end_y)) > 0 else 0.0
-        
-        return -self.config.robot_speed * self.config.dt * num_cells
+        shortage = desired_clearance - clearance
+        normalized_shortage = shortage / max(desired_clearance, 1e-6)
+        return -self.config.robot_speed * self.config.dt * normalized_shortage
 
     
     def _sfm_force_score(self):
@@ -345,7 +427,9 @@ class MCTSGameState(GameStateProtocol):
         #value_accumulator[0] += 0.6 * self._sfm_force_score()
         #value_accumulator[0] += self._uncomfortable_distance()
         value_accumulator[0] += 1.5 * self._uncomfortable_distance_meter_score()
-        value_accumulator[0] += 0.1 * self._near_wall_meter_score()
+        value_accumulator[0] += 1.0 * self._near_wall_meter_score()
+        value_accumulator[0] += 0.4 * self._passing_side_score()
+        value_accumulator[0] += 1.0 * self._forward_progress_score()
         if self.is_terminal():
             value_accumulator += 1.0 * self._goal_distance()
         
@@ -439,7 +523,7 @@ class MCTSGameState(GameStateProtocol):
                         continue
                     if self.config.map.grid[cy, cx] != WALL:
                         continue
-                    obstacle_pos = np.array([float(cx) + 0.5, float(cy) + 0.5], dtype=np.float32)
+                    obstacle_pos = self.config.map.cell_to_world((cx, cy))
                     diff = human_positions[i] - obstacle_pos
                     dist = np.linalg.norm(diff)
                     if dist < 1e-4:

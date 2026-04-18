@@ -8,27 +8,49 @@ from .constants import WALL
 from .scenario_map import ScenarioMap
 
 
+def _world_bounds(scenario: ScenarioMap) -> tuple[float, float, float, float]:
+    min_x = float(scenario.origin_x)
+    min_y = float(scenario.origin_y)
+    max_x = min_x + float(scenario.width) * float(scenario.resolution)
+    max_y = min_y + float(scenario.height) * float(scenario.resolution)
+    return min_x, min_y, max_x, max_y
+
+
+def _cell_index(position: np.ndarray, scenario: ScenarioMap) -> tuple[int, int]:
+    resolution = float(scenario.resolution)
+    cx = int(math.floor((float(position[0]) - float(scenario.origin_x)) / resolution))
+    cy = int(math.floor((float(position[1]) - float(scenario.origin_y)) / resolution))
+    cx = max(0, min(scenario.width - 1, cx))
+    cy = max(0, min(scenario.height - 1, cy))
+    return cx, cy
+
+
 def collides_with_walls(position: np.ndarray, radius: float, scenario: ScenarioMap) -> bool:
-    if position[0] < radius or position[1] < radius:
+    min_x, min_y, max_x, max_y = _world_bounds(scenario)
+    if position[0] < min_x + radius or position[1] < min_y + radius:
         return True
-    if position[0] > scenario.width - radius or position[1] > scenario.height - radius:
+    if position[0] > max_x - radius or position[1] > max_y - radius:
         return True
 
-    min_x = int(math.floor(position[0] - radius))
-    max_x = int(math.ceil(position[0] + radius))
-    min_y = int(math.floor(position[1] - radius))
-    max_y = int(math.ceil(position[1] + radius))
-    
-    for y in range(min_y, max_y + 1):
-        for x in range(min_x, max_x + 1):
-            if x < 0 or y < 0 or x >= scenario.width or y >= scenario.height:
-                continue
-            if scenario.grid[y, x] != WALL:
-                continue
-            near_x = max(float(x), min(float(position[0]), float(x + 1)))
-            near_y = max(float(y), min(float(position[1]), float(y + 1)))
-            dx = float(position[0]) - near_x
-            dy = float(position[1]) - near_y
-            if dx * dx + dy * dy <= radius * radius:
-                return True
-    return False
+    cx, cy = _cell_index(position, scenario)
+    if scenario.grid[cy, cx] == WALL:
+        return True
+    return bool(scenario.wall_distance_field[cy, cx] <= radius)
+
+
+def distance_to_nearest_wall(
+    position: np.ndarray,
+    scenario: ScenarioMap,
+    max_search_distance: float | None = None,
+) -> float:
+    min_x, min_y, max_x, max_y = _world_bounds(scenario)
+    boundary_clearance = min(
+        float(position[0]) - min_x,
+        max_x - float(position[0]),
+        float(position[1]) - min_y,
+        max_y - float(position[1]),
+    )
+
+    cx, cy = _cell_index(position, scenario)
+    interior_clearance = float(scenario.wall_distance_field[cy, cx])
+    return max(0.0, min(boundary_clearance, interior_clearance))

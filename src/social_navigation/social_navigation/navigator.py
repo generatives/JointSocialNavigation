@@ -150,7 +150,7 @@ class Navigator(Node):
         self._tree_depth = 6
         self._robot_speed = 1.0
         self._robot_angular_velocity_limit = 1.82
-        self._robot_radius = 0.5
+        self._robot_radius = 0.22
         self._path_obstacle_inflation_radius = 0.6
         self._tracking_feedback_blend = 0.65
         self._tracking_min_lookahead = 0.35
@@ -805,7 +805,7 @@ class Navigator(Node):
             robot_angular_velocity=robot_angular_velocity,
             robot_max_angular_accel=1.2,
             robot_radius=robot_radius,
-            human_radius=0.5,
+            human_radius=0.4,
             uncomfortable_distance=1.75,
             map=self._scenario_map,
             starting_distances=starting_distances,
