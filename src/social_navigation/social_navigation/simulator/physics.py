@@ -8,11 +8,15 @@ from .constants import WALL
 from .scenario_map import ScenarioMap
 
 
+# Temporary fix:
+# Add extra bounds to the map so that
+# when an agent is out of bounds, MCTS continues planning
+WORLD_BOUNDS_MARGIN_METERS = 5.0
 def _world_bounds(scenario: ScenarioMap) -> tuple[float, float, float, float]:
-    min_x = float(scenario.origin_x)
-    min_y = float(scenario.origin_y)
-    max_x = min_x + float(scenario.width) * float(scenario.resolution)
-    max_y = min_y + float(scenario.height) * float(scenario.resolution)
+    min_x = float(scenario.origin_x) - WORLD_BOUNDS_MARGIN_METERS
+    min_y = float(scenario.origin_y) - WORLD_BOUNDS_MARGIN_METERS
+    max_x = float(scenario.origin_x) + float(scenario.width) * float(scenario.resolution) + WORLD_BOUNDS_MARGIN_METERS
+    max_y = float(scenario.origin_y) + float(scenario.height) * float(scenario.resolution) + WORLD_BOUNDS_MARGIN_METERS
     return min_x, min_y, max_x, max_y
 
 

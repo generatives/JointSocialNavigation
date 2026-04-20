@@ -29,7 +29,7 @@ hunav_loader:
         vel: 1.0
         dist: 4.5
         goal_force_factor: 2.0
-        obstacle_force_factor: 0.0
+        obstacle_force_factor: 1.0
         social_force_factor: 5.0
         other_force_factor: 0.0
       init_pose:
@@ -37,7 +37,7 @@ hunav_loader:
         y: 0.5
         z: 1.250000
         h: 0.0
-      goal_radius: 0.3
+      goal_radius: 0.2
       cyclic_goals: false
       goals:
         - g0
@@ -59,7 +59,7 @@ hunav_loader:
         vel: 1.0
         dist: 4.5
         goal_force_factor: 2.0
-        obstacle_force_factor: 0.0
+        obstacle_force_factor: 1.0
         social_force_factor: 5.0
         other_force_factor: 0.0
       init_pose:
@@ -67,7 +67,7 @@ hunav_loader:
         y: 0.5
         z: 1.250000
         h: 0.0
-      goal_radius: 0.3
+      goal_radius: 0.2
       cyclic_goals: false
       goals:
         - g0

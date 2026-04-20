@@ -78,7 +78,120 @@ To run the simulator (I suggest to use tmux):
 ros2 launch social_simulator social_simulator.launch.py scenario:=agents_wide_hallway.yaml
 ```
 
-### DEBUGGING: 
+### To Run Evaluations
+
+Start the simulator with the correct map and scenario
+```
+ros2 launch social_simulator social_simulator.launch.py world:=narrow_hallway.world scenario:=narrow_hallway/agents_1_ahead_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/evaluation_goal_set'
+```
+
+Start the evaluation with the right scenario
+```
+ros2 launch social_simulator evaluation.launch.py scenario:=narrow_hallway/agents_1_ahead_robot.yaml experiment_tag:=test_run run_id:=0
+```
+
+## Narrower Hallway
+
+### JointMCTS
+
+```
+ros2 launch social_simulator social_simulator.launch.py world:=narrower_hallway.world scenario:=narrower_hallway/agents_2_towards_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/evaluation_goal_set'
+```
+
+```
+ros2 launch social_simulator evaluation.launch.py scenario:=narrower_hallway/agents_2_towards_robot.yaml experiment_tag:=narrower_hallway run_id:=0
+```
+
+### Nav2
+
+```
+ros2 launch social_simulator social_simulator.launch.py world:=narrower_hallway.world scenario:=narrower_hallway/agents_2_towards_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/goal_pose'
+```
+
+## Narrow Hallway
+
+### JointMCTS
+
+#### 2 towards robot
+```
+ros2 launch social_simulator social_simulator.launch.py world:=narrow_hallway.world scenario:=narrow_hallway/agents_2_towards_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/evaluation_goal_set'
+```
+
+```
+ros2 launch social_simulator evaluation.launch.py scenario:=narrow_hallway/agents_2_towards_robot.yaml experiment_tag:=2_towards_robot run_id:=0
+```
+
+#### 1 ahead robot
+```
+ros2 launch social_simulator social_simulator.launch.py world:=narrow_hallway.world scenario:=narrow_hallway/agents_1_ahead_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/evaluation_goal_set'
+```
+
+```
+ros2 launch social_simulator evaluation.launch.py scenario:=narrow_hallway/agents_1_ahead_robot.yaml experiment_tag:=1_ahead_robot run_id:=0
+```
+
+#### 1 behind robot
+```
+ros2 launch social_simulator social_simulator.launch.py world:=narrow_hallway.world scenario:=narrow_hallway/agents_1_behind_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/evaluation_goal_set'
+```
+
+```
+ros2 launch social_simulator evaluation.launch.py scenario:=narrow_hallway/agents_1_behind_robot.yaml experiment_tag:=1_behind_robot run_id:=0
+```
+
+## Intersection Hallway
+
+### JointMCTS
+
+#### 3 crossing
+```
+ros2 launch social_simulator social_simulator.launch.py world:=intersection_hallway.world scenario:=intersection_hallway/agents_3_crossing.yaml use_navgoal_to_start:=true navgoal_topic:='/evaluation_goal_set'
+```
+
+```
+ros2 launch social_simulator evaluation.launch.py scenario:=intersection_hallway/agents_3_crossing.yaml experiment_tag:=3_crossing run_id:=0
+```
+
+## Wide Hallway
+
+### JointMCTS
+
+#### 3 agents group
+```
+ros2 launch social_simulator social_simulator.launch.py world:=wide_hallway.world scenario:=wide_hallway/agents_3_agent_group.yaml use_navgoal_to_start:=true navgoal_topic:='/evaluation_goal_set'
+```
+
+```
+ros2 launch social_simulator evaluation.launch.py scenario:=wide_hallway/agents_3_agent_group.yaml experiment_tag:=3_agents_group run_id:=0
+```
+
+## T-shape Hallway
+
+### JointMCTS
+
+#### 3 agents group
+```
+ros2 launch social_simulator social_simulator.launch.py world:=t_shape_hallway.world scenario:=t_shape_hallway/agents_t_shape_hallway.yaml use_navgoal_to_start:=true navgoal_topic:='/evaluation_goal_set'
+```
+
+```
+ros2 launch social_simulator evaluation.launch.py scenario:=t_shape_hallway/agents_t_shape_hallway.yaml experiment_tag:=t_shape_hallway run_id:=0
+```
+
+## Doors Hallway
+
+### JointMCTS
+
+#### 3 agents group
+```
+ros2 launch social_simulator social_simulator.launch.py world:=doors_hallway.world scenario:=doors_hallway/agents_doors_hallway.yaml use_navgoal_to_start:=true navgoal_topic:='/evaluation_goal_set'
+```
+
+```
+ros2 launch social_simulator evaluation.launch.py scenario:=doors_hallway/agents_doors_hallway.yaml experiment_tag:=doors_hallway run_id:=0
+```
+
+### Debugging
 
 To run each launch file separately
 ```
@@ -97,70 +210,12 @@ ros2 launch social_simulator hudet.launch.py scenario_params_file:=agents_wide_h
 ros2 run social_navigation navigator
 ```
 
-### To Run Evaluations
-
-Start the simulator with the correct map and scenario
-```
-ros2 launch social_simulator social_simulator.launch.py world:=narrow_hallway.world scenario:=narrow_hallway/agents_1_ahead_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/evaluation_goal_set'
-```
-
-Start the evaluation with the right scenario
-```
-ros2 launch social_simulator evaluation.launch.py scenario:=narrow_hallway/agents_1_ahead_robot.yaml experiment_tag:=test_run run_id:=0
-```
-
-### To start HuNavSim Evaluator:
-
-
-```
-ros2 launch hunav_rviz2_panel hunav_rviz2_launch.py map:=/workspaces/JointSocialNavigation/src/social_simulator/maps/wide_hallway.yaml
-```
-
-
-Start evaluator launch
-```
-ros2 launch hunav_evaluator hunav_evaluator_launch.py metrics_file:=/workspaces/JointSocialNavigation/src/social_simulator/config/metrics.yaml
-```
-
-Start recording
-```
-ros2 service call /hunav_start_recording hunav_msgs/srv/StartEvaluation "{robot_goal: {header: {frame_id: map}, pose: {position: {x: 5.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}, experiment_tag: 'wide_hallway', run_id: 1}"
-```
-
-Stop recording
-```
-ros2 service call /hunav_stop_recording std_srvs/srv/Empty "{}"
-```
-
-
-## Narrower Hallway
-
-### JointMCTS
-
-```
-ros2 launch social_simulator social_simulator.launch.py world:=narrower_hallway.world scenario:=narrower_hallway/agents_2_towards_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/evaluation_goal_set'
-```
-
-```
-ros2 launch social_simulator evaluation.launch.py scenario:=narrower_hallway/agents_2_towards_robot.yaml experiment_tag:=test_run run_id:=0
-```
-
-```
-ros2 launch hunav_evaluator hunav_evaluator_launch.py metrics_file:=/workspaces/JointSocialNavigation/src/social_simulator/config/metrics.yaml
-```
-
-### Nav2 
-
-```
-ros2 launch social_simulator social_simulator.launch.py world:=narrower_hallway.world scenario:=narrower_hallway/agents_2_towards_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/goal_pose'
-```
-
+### Nav2 without people
 ```
 ros2 launch social_simulator social_simulator.launch.py world:=narrower_hallway.world scenario:=narrower_hallway/agents_2_towards_robot.yaml use_navgoal_to_start:=true navgoal_topic:='/goal_pose' use_humans:=False
 ```
 
-
-## Teleop command
+### Teleop command
 
 ```
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
