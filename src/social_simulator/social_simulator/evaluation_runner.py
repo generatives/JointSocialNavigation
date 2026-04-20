@@ -10,7 +10,6 @@ import tf2_ros
 from std_srvs.srv import Empty
 
 
-
 class EvaluationRunner(Node):
 
     def __init__(self):
@@ -49,9 +48,8 @@ class EvaluationRunner(Node):
             10,
         )
 
-        self.robot_sub = self.create_subscription(
-            Agent, "robot_states", self.robot_callback, 1
-        )
+        # For debugging
+        self.debug_print_counter = 0
 
         self.start_timer = self.create_timer(0.5, self.start_evaluation)
         self.stop_timer = self.create_timer(60.0 * self._time_factor, self.stop_evaluation)
@@ -98,18 +96,47 @@ class EvaluationRunner(Node):
     def evaluation_done_callback(self, result):
         self.get_logger().info('Evaluation Completed')
 
+    def _lookup_robot_transform(self):
+        try:
+            if not self.tf_buffer.can_transform(
+                "map",
+                "base_link",
+                rclpy.time.Time(),
+                timeout=Duration(seconds=0.2),
+            ):
+                self.get_logger().warn("TF map<-base_link not available yet; skipping this evaluation cycle.")
+                return None
+
+            return self.tf_buffer.lookup_transform(
+                "map",
+                "base_link",
+                rclpy.time.Time()
+            )
+        except tf2_ros.TransformException as exc:
+            self.get_logger().warn(f"TF lookup failed: {exc}")
+            return None
+
     def robot_callback(self, msg: Agent):
         goal_x = self.get_parameter('goal_x').get_parameter_value().double_value
         goal_y = self.get_parameter('goal_y').get_parameter_value().double_value
 
-        robot_x = msg.position.position.x
-        robot_y = msg.position.position.y
+        transform = self._lookup_robot_transform()
+        if transform is None:
+            return
+
+        robot_x = transform.transform.translation.x
+        robot_y = transform.transform.translation.y
 
         distance = math.sqrt((robot_x - goal_x) ** 2 + (robot_y - goal_y) ** 2)
 
         if distance < 0.5:
             self.stop_evaluation()
 
+        self.debug_print_counter += 1
+
+        if self.debug_print_counter % 100 == 0:
+            self.get_logger().info(f'Distance to goal is: {distance}')
+            self.debug_print_counter = 0
 
     def stop_evaluation(self):
         self.get_logger().info('Stopping Evaluation')
