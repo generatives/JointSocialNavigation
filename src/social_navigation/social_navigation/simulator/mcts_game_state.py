@@ -227,7 +227,7 @@ class MCTSGameState(GameStateProtocol):
             new_positions[0, 1] = y_new
             free_space = np.array([
                 not collides_with_walls(
-                    self.config.map.world_to_cell(new_positions[i, :]),
+                    new_positions[i, :],
                     self.config.robot_radius if i == 0 else self.config.human_radius,
                     self.config.map)
                 for i in range(self.config.mcts_config.num_actors)

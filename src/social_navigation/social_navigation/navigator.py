@@ -27,7 +27,6 @@ def yaw_to_quat_wz(yaw: float):
     half = yaw * 0.5
     return math.cos(half), math.sin(half)
 
-
 def quat_to_yaw(x: float, y: float, z: float, w: float) -> float:
     siny_cosp = 2.0 * (w * z + x * y)
     cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
@@ -214,7 +213,7 @@ class Navigator(Node):
         robot_speed = self._robot_speed
         robot_angular_velocity = self._robot_angular_velocity_limit
         robot_radius = self._robot_radius
-        dt = self.self._prediction_dt
+        dt = self._prediction_dt
         robot_yaw = quat_to_yaw(
             transform.transform.rotation.x,
             transform.transform.rotation.y,
@@ -436,7 +435,7 @@ class Navigator(Node):
         nearest_idx = search_start + int(np.argmin(distances))
         self._mcts_tracking_state_idx = nearest_idx
 
-        dt = self.self._prediction_dt()
+        dt = self._prediction_dt
         time_diff_limit = self._tracking_plan_lookahead_time + time.time() - self._mcts_plan_start_time
         furthest_idx = int(time_diff_limit / dt)
         furthest_idx = min(furthest_idx, len(self._mcts_action_plan) - 1)
@@ -780,7 +779,7 @@ class Navigator(Node):
             return
 
         tree_depth = self._tree_depth
-        dt = self.self._prediction_dt
+        dt = self._prediction_dt
         human_positions = self.human_states[:, :2]
         human_velocities = self.human_states[:, 2:]
         human_goals = self._predict_human_goals(
