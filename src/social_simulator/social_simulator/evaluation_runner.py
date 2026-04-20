@@ -20,8 +20,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from hunav_msgs.srv import StartEvaluation
 
-# Time is running at 1/10 speed in the simulation and we need to account for that in some logic
-TIME_FACTOR = 10.0
+
 
 class EvaluationRunner(Node):
 
@@ -32,6 +31,9 @@ class EvaluationRunner(Node):
         self.declare_parameter('goal_y', 0.0)
         self.declare_parameter('experiment_tag', 'untagged')
         self.declare_parameter('run_id', -1)
+
+        # Time is running at 1/10 speed in the simulation and we need to account for that in some logic
+        self._time_factor = 10.0
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -59,7 +61,7 @@ class EvaluationRunner(Node):
         )
 
         self.start_timer = self.create_timer(0.5, self.start_evaluation)
-        self.stop_timer = self.create_timer(60.0 * TIME_FACTOR, self.stop_evaluation)
+        self.stop_timer = self.create_timer(60.0 * self._time_factor, self.stop_evaluation)
 
         self.get_logger().info('Initialized successfully')
 
