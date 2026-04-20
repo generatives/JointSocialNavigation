@@ -50,6 +50,11 @@ class EvaluationRunner(Node):
 
         # For debugging
         self.debug_print_counter = 0
+        # TODO: don't subscribe to this topic it isn't accurate
+        # Using it as a "timer" for now
+        self.robot_sub = self.create_subscription(
+            Agent, "robot_states", self.robot_callback, 1
+        )
 
         self.start_timer = self.create_timer(0.5, self.start_evaluation)
         self.stop_timer = self.create_timer(60.0 * self._time_factor, self.stop_evaluation)
@@ -117,6 +122,7 @@ class EvaluationRunner(Node):
             return None
 
     def robot_callback(self, msg: Agent):
+        # TODO: Make this a timer callback instead
         goal_x = self.get_parameter('goal_x').get_parameter_value().double_value
         goal_y = self.get_parameter('goal_y').get_parameter_value().double_value
 
