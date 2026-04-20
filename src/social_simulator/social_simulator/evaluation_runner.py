@@ -1,24 +1,13 @@
 import math
-import random
-import time
-from typing import List
 
-import numpy as np
-
-from hunav_msgs.msg._agent import Agent
-import rclpy
-from rclpy.node import Node
-from rclpy.action import ActionClient
-from rclpy.duration import Duration
-from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
-import tf2_ros
-
-from std_srvs.srv import Empty
-from geometry_msgs.msg import Point, PointStamped, PoseStamped, Twist, Pose, Quaternion
-from nav2_msgs.action import NavigateToPose
-from visualization_msgs.msg import Marker, MarkerArray
-from nav_msgs.msg import OccupancyGrid, Odometry, Path
+from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
+from hunav_msgs.msg import Agent
 from hunav_msgs.srv import StartEvaluation
+import rclpy
+from rclpy.duration import Duration
+from rclpy.node import Node
+import tf2_ros
+from std_srvs.srv import Empty
 
 
 
@@ -31,6 +20,7 @@ class EvaluationRunner(Node):
         self.declare_parameter('goal_y', 0.0)
         self.declare_parameter('experiment_tag', 'untagged')
         self.declare_parameter('run_id', -1)
+        self.declare_parameter('evaluation_goal_topic', '/evaluation_goal_set')
 
         # Time is running at 1/10 speed in the simulation and we need to account for that in some logic
         self._time_factor = 10.0
@@ -50,9 +40,12 @@ class EvaluationRunner(Node):
             self.get_logger().error("Is hunav_evaluator_node running?")
             raise RuntimeError("hunav_stop_recording action server not available")
 
+        # Use '/evaluation_goal_set' for MCTS
+        # Use '/goal_pose' for Nav2
+        self.evaluation_goal_topic = self.get_parameter('evaluation_goal_topic').value
         self.set_evaluation_goal_publisher = self.create_publisher(
             PoseStamped,
-            '/evaluation_goal_set',
+            self.evaluation_goal_topic,
             10,
         )
 
@@ -98,6 +91,7 @@ class EvaluationRunner(Node):
         evaluation_result.add_done_callback(self.evaluation_done_callback)
 
         self.set_evaluation_goal_publisher.publish(goal)
+        self.get_logger().info(f'Published scenario goal to {self.evaluation_goal_topic}')
 
         self.start_timer.cancel()
 

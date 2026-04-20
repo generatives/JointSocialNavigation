@@ -8,7 +8,6 @@ from scipy.ndimage import distance_transform_edt
 
 from .constants import FREE, WALL
 
-
 def inflate_grid(grid, cells):
     cells = max(0, int(cells))
     if cells == 0:

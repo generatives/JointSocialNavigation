@@ -39,22 +39,6 @@ def collides_with_walls(position: np.ndarray, radius: float, scenario: ScenarioM
     cx, cy = _cell_index(position, scenario)
     if scenario.grid[cy, cx] == WALL:
         return True
+    # Use the precomputed distance to wall 
     return bool(scenario.wall_distance_field[cy, cx] <= radius)
 
-
-def distance_to_nearest_wall(
-    position: np.ndarray,
-    scenario: ScenarioMap,
-    max_search_distance: float | None = None,
-) -> float:
-    min_x, min_y, max_x, max_y = _world_bounds(scenario)
-    boundary_clearance = min(
-        float(position[0]) - min_x,
-        max_x - float(position[0]),
-        float(position[1]) - min_y,
-        max_y - float(position[1]),
-    )
-
-    cx, cy = _cell_index(position, scenario)
-    interior_clearance = float(scenario.wall_distance_field[cy, cx])
-    return max(0.0, min(boundary_clearance, interior_clearance))

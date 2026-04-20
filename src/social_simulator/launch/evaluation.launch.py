@@ -1,3 +1,4 @@
+import math
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -6,9 +7,9 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, Opaq
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch.event_handlers import OnProcessStart, OnProcessExit, OnExecutionComplete
+from launch.event_handlers import OnProcessStart
 
-from social_simulator.utils import load_robot_config, load_scenario_parameters
+from social_simulator.utils import load_robot_config
 
 def launch_setup(context, *args, **kwargs):
     social_simulator_dir = get_package_share_directory("social_simulator")
@@ -36,6 +37,7 @@ def launch_setup(context, *args, **kwargs):
 
     experiment_tag = LaunchConfiguration("experiment_tag")
     run_id = LaunchConfiguration("run_id")
+    evaluation_goal_topic = LaunchConfiguration("evaluation_goal_topic")
 
     evaluation_runner_node = Node(
         package="social_simulator",
@@ -47,7 +49,8 @@ def launch_setup(context, *args, **kwargs):
                 'goal_x': robot_cfg['goal']['x'],
                 'goal_y': robot_cfg['goal']['y'],
                 'experiment_tag': experiment_tag,
-                'run_id': run_id
+                'run_id': run_id,
+                'evaluation_goal_topic': evaluation_goal_topic,
             }
         ],
         on_exit=Shutdown()
@@ -84,6 +87,12 @@ def generate_launch_description():
                 "run_id",
                 default_value="-1",
                 description="Run ID to record results under",
+            ),
+            DeclareLaunchArgument(
+                "evaluation_goal_topic",
+                default_value="/evaluation_goal_set",
+                description="PoseStamped topic used to send the evaluation goal. " \
+                "Choose /evaluation_goal_set for navigator or /goal_pose for Nav2",
             ),
             OpaqueFunction(function=launch_setup),
         ]

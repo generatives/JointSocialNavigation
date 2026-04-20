@@ -42,7 +42,7 @@ class Navigator(Node):
         # Time is running at 1/10 speed in the simulation and 
         # we need to account for that in some logic
         self._time_factor = 10.0
-        self._prediction_dt = 0.5
+        self._prediction_dt = 0.6
         plan_dt = self._prediction_dt
         plan_period = plan_dt * self._time_factor
         execute_period = plan_period / 10.0
