@@ -54,20 +54,20 @@ class MCTSGameState(GameStateProtocol):
         self._collision_mask = None
         self._collision_occured = None
         self.depth = depth
-        
+
         if accumulated_value is None:
             accumulated_value = np.zeros((positions.shape[0],))
         self._accumulated_value = self._accumulate_value(accumulated_value)
 
     def terminal_values(self) -> ValueMap:
         return self._accumulated_value.tolist()
-    
+
     def _accumulate_value(self, value_accumulator) -> np.ndarray:
         value_accumulator = value_accumulator.copy()
         #value_accumulator[0] += 0.6 * self._sfm_force_score()
         #value_accumulator[0] += self._uncomfortable_distance()
-        value_accumulator[0] += 1.5 * self._uncomfortable_distance_meter_score()
-        value_accumulator[0] += 0.1 * self._near_wall_meter_score()
+        value_accumulator[0] += 1.5 * self._uncomfortable_distance_metre_score()
+        value_accumulator[0] += 0.1 * self._near_wall_metre_score()
         if self.is_terminal():
             value_accumulator += 1.0 * self._goal_distance()
         
@@ -75,7 +75,7 @@ class MCTSGameState(GameStateProtocol):
         value_accumulator[invalid_state_mask] = -2.0 * self.config.starting_distances[0]
 
         return value_accumulator
-   
+
     def sample_action(self, actor_idx: int, rng: np.random.Generator, existing_actions: Optional[List[Tuple[Action, float]]] = None) -> Tuple[Action, float]:
         """Samples a new action for the actor, ensuring diversity within the pool and against existing expansions."""
         
@@ -300,7 +300,7 @@ class MCTSGameState(GameStateProtocol):
         score = total_distance / total_possible_distance
         return score
     
-    def _uncomfortable_distance_meter_score(self) -> np.ndarray:
+    def _uncomfortable_distance_metre_score(self) -> np.ndarray:
         robot_position = self.positions[0, :]
         other_positions = self.positions[1:, :]
         distances = np.linalg.norm(other_positions - robot_position, axis=1)
@@ -311,7 +311,7 @@ class MCTSGameState(GameStateProtocol):
 
         return -total_cost
     
-    def _near_wall_meter_score(self) -> np.ndarray:
+    def _near_wall_metre_score(self) -> np.ndarray:
         robot_position = self.positions[0, :]
         map = self.config.map
         x, y = map.world_to_cell(robot_position)

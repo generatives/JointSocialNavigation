@@ -423,9 +423,13 @@ class Navigator(Node):
         if len(self._mcts_predicted_robot_positions) == 0 or len(self._mcts_predicted_robot_orientations) == 0:
             return None
 
-        # Pure Pursuit tracking controller
+        # We need a tracking controller due to a model mismatch between MCTS 
+        # and the turtlebot
+        # Pure Pursuit tracking controller 
         plan_points = self._mcts_predicted_robot_positions
         plan_orientations = self._mcts_predicted_robot_orientations
+
+        # Need the tracking state index to know which point on the plan to start at
         search_start = min(
             max(0, self._mcts_tracking_state_idx - 1),
             len(plan_points) - 1,
@@ -435,6 +439,8 @@ class Navigator(Node):
         nearest_idx = search_start + int(np.argmin(distances))
         self._mcts_tracking_state_idx = nearest_idx
 
+        # Start from nearest plan point until lookahead distance is reached
+        # Use that point as the target position
         dt = self._prediction_dt
         time_diff_limit = self._tracking_plan_lookahead_time + time.time() - self._mcts_plan_start_time
         furthest_idx = int(time_diff_limit / dt)
@@ -456,16 +462,21 @@ class Navigator(Node):
         if action_idx == len(self._mcts_action_plan) - 1 and target_distance < self._tracking_goal_tolerance:
             return 0.0, 0.0
 
+        # Get action from MCTS
         nominal_linear, nominal_angular = self._mcts_action_plan[action_idx][0]
         commanded_linear = max(0.0, float(nominal_linear))
 
+        # Just rotate towards target position
         if target_distance > 1e-6:
             target_heading = math.atan2(float(target_vector[1]), float(target_vector[0]))
         else:
+            # Rotate towards MCTS plan
             target_heading = plan_orientations[target_idx]
+
         angle = target_heading - robot_yaw
         heading_error = math.atan2(math.sin(angle), math.cos(angle))
 
+        # Heading speed to reduce when the robot is not facing the target
         heading_speed_scale = float(
             np.clip(
                 1.0 - abs(heading_error) / math.pi,
@@ -473,18 +484,24 @@ class Navigator(Node):
                 1.0,
             )
         )
+        # Reduce speed when not facing the target position
         commanded_linear *= heading_speed_scale
         if target_distance < self._tracking_min_lookahead:
+            # If state on MCTS plan is very close, reduce speed
             commanded_linear *= target_distance / self._tracking_min_lookahead
 
         lookahead = max(target_distance, self._tracking_min_lookahead)
         if commanded_linear > 1e-3:
+            # Path following law
             pure_pursuit_angular = (
-                2.0 * commanded_linear * math.sin(heading_error) / lookahead
+                commanded_linear * (2.0*math.sin(heading_error) / lookahead)
             )
         else:
+            # Rotate towards target
             pure_pursuit_angular = 1.2 * heading_error
 
+        # Velocity blend for geometric correction to stay on the planned path
+        # Extra modification Makes pure pursuit more robust
         commanded_angular = (
             (1.0 - self._tracking_feedback_blend) * float(nominal_angular)
             + self._tracking_feedback_blend * pure_pursuit_angular
@@ -518,6 +535,7 @@ class Navigator(Node):
             transform.transform.rotation.z,
             transform.transform.rotation.w,
         )
+        # Tracker runs at once every 5 seconds
         command = self._compute_tracking_command(robot_position, robot_yaw)
         if command is None:
             self.send_cmd_vel(0.0, 0.0)
