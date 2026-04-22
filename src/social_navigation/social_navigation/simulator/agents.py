@@ -197,27 +197,35 @@ class MCTSRobotAI:
 
         human_positions = self.crowd.positions[closest_humans]
         human_velocities = self.crowd.velocities[closest_humans]
-        horizon = np.linalg.norm(human_velocities, axis=1) * dt * tree_depth
+        human_linear_velocities = np.linalg.norm(human_velocities, axis=1)
+        horizon = human_linear_velocities * dt * tree_depth
         ema_vels = self.crowd.velocity_ema[closest_humans]
         ema_speeds = np.linalg.norm(ema_vels, axis=1, keepdims=True)
         moving = ema_speeds > 0.1
         ema_dirs = np.where(moving, ema_vels / np.where(moving, ema_speeds, 1.0), 0.0)
         human_goals = human_positions + ema_dirs * horizon[:, np.newaxis]
 
-        robot_velocity = np.array([
-            [np.cos(robot.theta), np.sin(robot.theta)]
-        ])
-
         positions = np.vstack((robot.position[None, :], human_positions))
-        velocities = np.concatenate((robot_velocity, human_velocities))
+        linear_velocities = np.hstack(
+            (
+                np.array([1.0]),
+                human_linear_velocities
+            )
+        )
+        orientations = np.hstack(
+            (
+                np.array([robot.theta]),
+                np.arctan2(human_velocities[:, 1], human_velocities[:, 0])
+            )
+        )
+        angular_velocities = np.zeros((positions.shape[0]))
         goal_positions = np.vstack((robot_goal[None, :], human_goals))
         starting_distances = np.linalg.norm(goal_positions - positions, axis=1)
 
         num_agents = positions.shape[0]
 
         # Try to manually define max samples per an actor
-        max_actions = (8,) + (1,) * (num_agents - 1)
-
+        max_actions = (8,) + (3,) * (num_agents - 1)
 
         mcts_config = MCTSConfig(
             num_actors=num_agents, 
@@ -232,10 +240,12 @@ class MCTSRobotAI:
         state_config = MCTSGameStateConfig(
             mcts_config=mcts_config,
             robot_speed=robot_speed,
+            robot_max_linear_accel=math.inf,
+            robot_angular_velocity=robot_omega,
+            robot_max_angular_accel=math.inf,
             dt=dt,
             robot_radius=robot.radius,
             human_radius=np.mean(self.crowd.radius),
-            robot_angular_velocity=robot_omega,
             uncomfortable_distance=1.75,
             starting_distances=starting_distances,
             map=self.scenario,
@@ -244,7 +254,9 @@ class MCTSRobotAI:
 
         root_state = MCTSGameState(
             positions=positions,
-            velocities=velocities,
+            linear_velocities=linear_velocities,
+            orientations=orientations,
+            angular_velocities=angular_velocities,
             agent_goal_positions=goal_positions,
             accumulated_value=None,
             config=state_config,

@@ -9,6 +9,8 @@ from social_navigation.simulator.physics import collides_with_walls
 from social_navigation.simulator.scenario_map import ScenarioMap
 
 SAMPLE_DISTANT_ACTIONS = True
+HUMAN_PREFERRED_SPEED = 1.35
+HUMAN_MAX_SPEED = HUMAN_PREFERRED_SPEED * 1.7
 
 @dataclass(frozen=True, slots=True)
 class MCTSGameStateConfig:
@@ -78,19 +80,18 @@ class MCTSGameState(GameStateProtocol):
 
     def sample_action(self, actor_idx: int, rng: np.random.Generator, existing_actions: Optional[List[Tuple[Action, float]]] = None) -> Tuple[Action, float]:
         """Samples a new action for the actor, ensuring diversity within the pool and against existing expansions."""
-        
-        # To modify later  based on specific heuristics 
-        v_mean, v_std =  0.5 * self.config.robot_speed, 0.5
-        omega_mean, omega_std = 0.0, self.config.robot_angular_velocity * 0.5
-
-        # We must normalize the axes because v and omega have different maximum scales
-        v_scale = self.config.robot_speed if self.config.robot_speed > 0 else 1.0
-        omega_scale = self.config.robot_angular_velocity if self.config.robot_angular_velocity > 0 else 1.0
-
-        best_v, best_omega, score = 0.0, 0.0, 1.0
 
         if actor_idx == 0:
-            # Robot (Actor 0)
+            # To modify later  based on specific heuristics 
+            v_mean, v_std =  0.5 * self.config.robot_speed, 0.5
+            omega_mean, omega_std = 0.0, self.config.robot_angular_velocity * 0.5
+
+            # We must normalize the axes because v and omega have different maximum scales
+            v_scale = self.config.robot_speed if self.config.robot_speed > 0 else 1.0
+            omega_scale = self.config.robot_angular_velocity if self.config.robot_angular_velocity > 0 else 1.0
+
+            best_v, best_omega, score = 0.0, 0.0, 1.0
+
             if not existing_actions or not SAMPLE_DISTANT_ACTIONS:
                 # First action has nothing to be diverse against
                 best_v = float(np.clip(rng.normal(v_mean, v_std), -self.config.robot_speed, self.config.robot_speed))
@@ -116,10 +117,13 @@ class MCTSGameState(GameStateProtocol):
                         max_min_dist = min_tree_dist
                         best_v, best_omega = v_cand, omega_cand
 
-                # calculate heuristic score
-                score = self._score_robot_action(best_v, best_omega)
-    
-        return (best_v, best_omega), score
+            # calculate heuristic score
+            score = self._score_robot_action(best_v, best_omega)
+            return (best_v, best_omega), score
+        else:
+            vel_dist = rng.normal(0, HUMAN_PREFERRED_SPEED * 0.33, size=(2,))
+            return (vel_dist[0], vel_dist[0]), 1.0
+
     
     def _score_robot_action(self, linear_velocity, rotational_velocity) -> float:
         robot_position = self.positions[0, :]
@@ -198,6 +202,7 @@ class MCTSGameState(GameStateProtocol):
 
         # The robot's continuous action is directly used
         robot_goal_v, robot_goal_omega = actions[0][0]
+        human_velocity_disturbance = np.array([t[0] for t in actions[1:]])
 
         #collisions = np.zeros((self.config.mcts_config.num_actors))
 
@@ -207,6 +212,7 @@ class MCTSGameState(GameStateProtocol):
             velocity_dir = np.concat([x_velocities[:, None], y_velocities[:, None]], axis=1)
             velocities = velocity_dir * linear_velocities[:, None]
             human_velocities = self._calculate_human_velocities(positions, velocities)
+            human_velocities = human_velocities + human_velocity_disturbance
 
             robot_position = positions[0, :]
             robot_linear_velocity = linear_velocities[0]
@@ -367,7 +373,6 @@ class MCTSGameState(GameStateProtocol):
 
     # All good here
     def _calculate_human_velocities(self, positions, velocities):
-        human_preferred_speed = 1.35
         dt = self.config.dt
 
         human_positions = positions[1:, :]
@@ -380,7 +385,7 @@ class MCTSGameState(GameStateProtocol):
             to_target = human_goal_positions[i] - human_positions[i]
             dist = np.linalg.norm(to_target)
             if dist > 1e-6:
-                desired[i] = (to_target / dist) * human_preferred_speed
+                desired[i] = (to_target / dist) * HUMAN_PREFERRED_SPEED
 
         relaxation_time = 0.45
         accel = (desired - human_velocities) / relaxation_time
@@ -389,10 +394,9 @@ class MCTSGameState(GameStateProtocol):
         human_velocities += accel * dt
 
         speed = np.linalg.norm(human_velocities, axis=1)
-        max_speed = human_preferred_speed * 1.7
-        too_fast = speed > max_speed
+        too_fast = speed > HUMAN_MAX_SPEED
         if np.any(too_fast):
-            human_velocities[too_fast] *= (max_speed / speed[too_fast])[:, None]
+            human_velocities[too_fast] *= (HUMAN_MAX_SPEED / speed[too_fast])[:, None]
 
         return human_velocities
 
