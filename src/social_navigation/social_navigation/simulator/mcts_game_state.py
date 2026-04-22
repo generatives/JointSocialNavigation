@@ -67,7 +67,7 @@ class MCTSGameState(GameStateProtocol):
         #value_accumulator[0] += 0.6 * self._sfm_force_score()
         #value_accumulator[0] += self._uncomfortable_distance()
         value_accumulator[0] += 1.5 * self._uncomfortable_distance_metre_score()
-        value_accumulator[0] += 0.1 * self._near_wall_metre_score()
+        value_accumulator[0] += 1.0 * self._near_wall_metre_score()
         if self.is_terminal():
             value_accumulator += 1.0 * self._goal_distance()
         
@@ -303,31 +303,38 @@ class MCTSGameState(GameStateProtocol):
     def _uncomfortable_distance_metre_score(self) -> np.ndarray:
         robot_position = self.positions[0, :]
         other_positions = self.positions[1:, :]
-        distances = np.linalg.norm(other_positions - robot_position, axis=1)
-        is_uncomfortable = distances < self.config.uncomfortable_distance
-        costs = np.zeros(other_positions.shape[0])
-        costs[is_uncomfortable] = self.config.robot_speed * self.config.dt
-        total_cost = np.sum(costs)
+        if other_positions.shape[0] == 0:
+            return 0.0
 
-        return -total_cost
+        distances = np.linalg.norm(other_positions - robot_position, axis=1)
+        contact_distance = self.config.robot_radius + self.config.human_radius
+        comfort_span = max(self.config.uncomfortable_distance - contact_distance, 1e-6)
+        
+        # 0 at the comfort boundary, 1 at contact
+        penalty = np.clip(
+            (self.config.uncomfortable_distance - distances) / comfort_span,
+            0.0,
+            1.0,
+        )
+        # Use quadratic so the penalty grows more sharply as the robot gets closer to the human.
+        per_human_cost = penalty**2 * self.config.robot_speed * self.config.dt
+        return -float(np.sum(per_human_cost))
     
     def _near_wall_metre_score(self) -> np.ndarray:
         robot_position = self.positions[0, :]
-        map = self.config.map
-        x, y = map.world_to_cell(robot_position)
+        desired_clearance = self.config.robot_radius + 0.25
 
-        x = x - 1
-        y = y - 1
+        cx, cy = self.config.map.world_to_cell(robot_position)
+        clearance = float(self.config.map.wall_distance_field[cy, cx])
+        if clearance >= desired_clearance:
+            return 0.0
 
-        start_x = np.clip(x, 0, map.width)
-        end_x = np.clip(x+3, 0, map.width)
-
-        start_y = np.clip(y, 0, map.height)
-        end_y = np.clip(y+3, 0, map.height)
-
-        num_cells = 1.0 if map.wall_cells_in_range((start_x, start_y), (end_x, end_y)) > 0 else 0.0
-        
-        return -self.config.robot_speed * self.config.dt * num_cells
+        # Linear shortage: 0 at the clearance boundary, 1 at contact. Kept
+        # linear (not quadratic like the social cost) so the wall term nudges
+        # the robot off a wall without dominating the social gradient.
+        shortage = desired_clearance - clearance
+        normalized_shortage = shortage / max(desired_clearance, 1e-6)
+        return -self.config.robot_speed * self.config.dt * normalized_shortage
 
     def _sfm_force_score(self):
         num_humans = self.positions.shape[0] - 1

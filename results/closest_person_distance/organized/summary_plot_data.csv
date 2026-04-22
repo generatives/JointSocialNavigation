@@ -1,18 +1,17 @@
 scenario_group,experiment,method_label,record_count,avg_distance_to_closest_person
-doors_hallway,doors_hallway,nav2,1,2.776914806524272
-intersection_hallway,intersection_hallway,mcts,1,5.560944592134852
-intersection_hallway,intersection_hallway,nav2,1,7.07510580894875
-narrow_hallway,1_ahead_robot,mcts/tuning,1,2.83517843846424
-narrow_hallway,1_ahead_robot,nav2,1,3.635962952399501
-narrow_hallway,1_behind_robot,mcts/tuning,1,0.8205173243067501
-narrow_hallway,1_behind_robot,nav2,1,1.89551188485053
-narrow_hallway,2_towards_robot,mcts/main (0.5),1,7.577575244562516
-narrow_hallway,2_towards_robot,mcts/main (1.0),1,8.607403428072253
-narrow_hallway,2_towards_robot,mcts/tuning,1,7.4614197250899394
-narrow_hallway,2_towards_robot,nav2,1,7.787241328972787
-narrower_hallway,narrower_hallway,mcts,2,7.834976408172228
-narrower_hallway,narrower_hallway,nav2,1,7.002277405278682
-t_shape_hallway,t_shape_hallway,mcts,1,2.6471881285418184
-t_shape_hallway,t_shape_hallway,nav2,1,1.7325593647461717
-wide_hallway,wide_hallway,mcts,1,7.513108872424432
-wide_hallway,wide_hallway,nav2,1,8.020171394375721
+doors_hallway,doors_hallway,mcts,1,2.1624197439054624
+doors_hallway,doors_hallway,nav2,1,2.37576458145294
+intersection_hallway,intersection_hallway,mcts,1,4.367042547768654
+intersection_hallway,intersection_hallway,nav2,1,5.808194503465544
+narrow_hallway,1_ahead_robot,mcts,1,3.5093076030066324
+narrow_hallway,1_ahead_robot,nav2,1,4.967246358387746
+narrow_hallway,1_behind_robot,mcts,1,0.8455853572984869
+narrow_hallway,1_behind_robot,nav2,1,2.15803524221801
+narrow_hallway,2_towards_robot,mcts,1,4.961370322284406
+narrow_hallway,2_towards_robot,nav2,1,4.846176366857304
+narrower_hallway,narrower_hallway,mcts,1,4.78031220453942
+narrower_hallway,narrower_hallway,nav2,1,4.429810180630911
+t_shape_hallway,t_shape_hallway,mcts,1,2.389813146001376
+t_shape_hallway,t_shape_hallway,nav2,1,3.5198191666768794
+wide_hallway,wide_hallway,mcts,1,6.11211909918821
+wide_hallway,wide_hallway,nav2,1,6.979178311951614

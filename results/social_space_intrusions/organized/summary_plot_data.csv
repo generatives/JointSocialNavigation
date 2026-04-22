@@ -1,0 +1,16 @@
+scenario_group,experiment,method_label,record_count,social_space_intrusions
+doors_hallway,doors_hallway,nav2,1,51.72413793103448
+intersection_hallway,intersection_hallway,mcts,1,26.34730538922156
+intersection_hallway,intersection_hallway,nav2,1,25.0
+narrow_hallway,1_ahead_robot,mcts,1,52.44755244755245
+narrow_hallway,1_ahead_robot,nav2,1,15.0
+narrow_hallway,1_behind_robot,mcts,1,18.26086956521739
+narrow_hallway,1_behind_robot,nav2,1,35.294117647058826
+narrow_hallway,2_towards_robot,mcts,1,21.238938053097343
+narrow_hallway,2_towards_robot,nav2,1,25.683060109289617
+narrower_hallway,narrower_hallway,mcts,1,21.428571428571427
+narrower_hallway,narrower_hallway,nav2,1,16.756756756756758
+t_shape_hallway,t_shape_hallway,mcts,1,43.57798165137615
+t_shape_hallway,t_shape_hallway,nav2,1,30.0
+wide_hallway,wide_hallway,mcts,1,15.0
+wide_hallway,wide_hallway,nav2,1,12.0

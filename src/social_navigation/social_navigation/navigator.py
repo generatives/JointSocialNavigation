@@ -320,8 +320,8 @@ class Navigator(Node):
             self._mcts_action_plan = actions
 
             robot_states = np.array(marker_states)
-            self._mcts_predicted_robot_positions = robot_states[:, [0, 1]]
-            self._mcts_predicted_robot_orientations = robot_states[:, [2]]
+            self._mcts_predicted_robot_positions = robot_states[:, :2]
+            self._mcts_predicted_robot_orientations = robot_states[:, 2]
 
             self._mcts_tracking_state_idx = 0
             self._mcts_plan_start_time = mcts_plan_start_time
@@ -444,7 +444,7 @@ class Navigator(Node):
         dt = self._prediction_dt
         time_diff_limit = self._tracking_plan_lookahead_time + time.time() - self._mcts_plan_start_time
         furthest_idx = int(time_diff_limit / dt)
-        furthest_idx = min(furthest_idx, len(self._mcts_action_plan) - 1)
+        furthest_idx = min(furthest_idx, len(plan_points) - 1)
         action_idx = min(nearest_idx, len(self._mcts_action_plan) - 1)
         target_idx = nearest_idx
         travelled = 0.0

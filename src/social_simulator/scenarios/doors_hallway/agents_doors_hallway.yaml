@@ -10,7 +10,7 @@ hunav_loader:
         z: 1.250000
         yaw: 0
       goal:
-        x: -4.0
+        x: -1.5
         y: -7.5
     agents:
       - worker1
@@ -79,18 +79,13 @@ hunav_loader:
       goals:
         - g0
         - g1
-        - g2
       g0:
-        x: -8.0
-        y: 8.0
+        x: 0.0
+        y: -8.0
         h: 1.250000
       g1:
-        x: 4.0
-        y: -8.0
-        h: 1.250000
-      g2:
-        x: -4.0
-        y: -8.0
+        x: 0.0
+        y: 1.0
         h: 1.250000
     worker3:
       id: 3

@@ -10,7 +10,7 @@ hunav_loader:
         z: 1.250000
         yaw: 0
       goal:
-        x: 8.377087
+        x: 3.5
         y: -0.104486
     agents:
       - agent_1

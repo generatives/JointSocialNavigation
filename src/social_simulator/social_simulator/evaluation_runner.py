@@ -21,9 +21,6 @@ class EvaluationRunner(Node):
         self.declare_parameter('run_id', -1)
         self.declare_parameter('evaluation_goal_topic', '/evaluation_goal_set')
 
-        # Time is running at 1/10 speed in the simulation and we need to account for that in some logic
-        self._time_factor = 10.0
-
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
@@ -55,6 +52,11 @@ class EvaluationRunner(Node):
         self.robot_sub = self.create_subscription(
             Agent, "robot_states", self.robot_callback, 1
         )
+
+        # Time is running at 1/10 speed in the simulation and we need to account for that in some logic
+        self._time_factor = 10.0
+        if self.evaluation_goal_topic == '/goal_pose':
+            self._time_factor = 1.0
 
         self.start_timer = self.create_timer(0.5, self.start_evaluation)
         self.stop_timer = self.create_timer(60.0 * self._time_factor, self.stop_evaluation)
@@ -94,7 +96,7 @@ class EvaluationRunner(Node):
         evaluation_result.add_done_callback(self.evaluation_done_callback)
 
         self.set_evaluation_goal_publisher.publish(goal)
-        self.get_logger().info(f'Published scenario goal to {self.evaluation_goal_topic}')
+        self.get_logger().info(f'Published scenario goal to {self.evaluation_goal_topic}: (x={goal_x}, y={goal_y})')
 
         self.start_timer.cancel()
 
