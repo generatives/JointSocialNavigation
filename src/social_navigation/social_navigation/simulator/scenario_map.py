@@ -4,6 +4,7 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.ndimage import distance_transform_edt
 
 from .constants import FREE, WALL
 
@@ -33,6 +34,21 @@ class ScenarioMap:
     resolution: float = 1.0
     origin_x: float = 0.0
     origin_y: float = 0.0
+    _wall_distance_field: np.ndarray | None = None
+
+    @property
+    def wall_distance_field(self) -> np.ndarray:
+        """Per cell distance from the cell centre to the nearest
+        wall cell edge."""
+        if self._wall_distance_field is None:
+            wall_mask = self.grid == WALL
+            if not np.any(wall_mask):
+                field = np.full(self.grid.shape, np.inf, dtype=np.float32)
+            else:
+                edt = distance_transform_edt(~wall_mask, sampling=float(self.resolution))
+                field = np.maximum(edt - 0.5 * float(self.resolution), 0.0).astype(np.float32)
+            self._wall_distance_field = field
+        return self._wall_distance_field
 
     @staticmethod
     def build_empty() -> "ScenarioMap":

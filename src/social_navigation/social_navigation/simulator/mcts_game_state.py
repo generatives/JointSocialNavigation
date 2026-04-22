@@ -54,62 +54,27 @@ class MCTSGameState(GameStateProtocol):
         self._collision_mask = None
         self._collision_occured = None
         self.depth = depth
-        
+
         if accumulated_value is None:
             accumulated_value = np.zeros((positions.shape[0],))
         self._accumulated_value = self._accumulate_value(accumulated_value)
 
-   
-    def _score_robot_action(self, linear_velocity, rotational_velocity) -> float:
-        robot_position = self.positions[0, :]
-        robot_linear_velocity = self.linear_velocities[0]
-        robot_orientation = self.orientations[0]
-        robot_angular_velocity = self.angular_velocities[0]
+    def terminal_values(self) -> ValueMap:
+        return self._accumulated_value.tolist()
 
-        linear_change = self.config.robot_max_linear_accel * self.config.dt
-        new_velocity = np.clip(linear_velocity,
-                                robot_linear_velocity - linear_change,
-                                robot_linear_velocity + linear_change)
-        angular_change = self.config.robot_max_angular_accel * self.config.dt
-        new_angular_velocity = np.clip(rotational_velocity,
-                                robot_angular_velocity - angular_change,
-                                robot_angular_velocity + angular_change)
+    def _accumulate_value(self, value_accumulator) -> np.ndarray:
+        value_accumulator = value_accumulator.copy()
+        #value_accumulator[0] += 0.6 * self._sfm_force_score()
+        #value_accumulator[0] += self._uncomfortable_distance()
+        value_accumulator[0] += 1.5 * self._uncomfortable_distance_metre_score()
+        value_accumulator[0] += 1.0 * self._near_wall_metre_score()
+        if self.is_terminal():
+            value_accumulator += 1.0 * self._goal_distance()
+        
+        invalid_state_mask, _ = self._get_invalid_state()
+        value_accumulator[invalid_state_mask] = -2.0 * self.config.starting_distances[0]
 
-        x_new, y_new, robot_new_orientation = self._propagate_unicycle(
-            robot_position[0],
-            robot_position[1],
-            robot_orientation,
-            new_velocity,
-            new_angular_velocity,
-            self.config.dt,
-        )
-
-        goal_vector = self.agent_goal_positions[0, :] - self.positions[0, :]
-        goal_norm = np.linalg.norm(goal_vector)
-        goal_direction = goal_vector / goal_norm if goal_norm > 1e-9 else np.zeros_like(goal_vector)
-        goal_heading = math.atan2(goal_vector[1], goal_vector[0]) if goal_norm > 1e-9 else 0.0
-
-        action_vector = np.array([x_new, y_new]) - self.positions[0, :]
-        action_norm = np.linalg.norm(action_vector)
-        if action_norm > 1e-9 and goal_norm > 1e-9:
-            progress_alignment = float(np.dot(goal_direction, action_vector / action_norm))
-        elif action_norm <= 1e-9 and goal_norm > 1e-9:
-            progress_alignment = 0.0
-        else:
-            progress_alignment = 1.0
-
-        heading_error = math.atan2(
-            math.sin(goal_heading - robot_new_orientation),
-            math.cos(goal_heading - robot_new_orientation),
-        )
-        heading_alignment = math.cos(heading_error) if goal_norm > 1e-9 else 1.0
-
-        combined_alignment = (
-            self.config.action_progress_weight * progress_alignment
-            + self.config.action_heading_weight * heading_alignment
-        )
-        score = float(np.exp(combined_alignment - 1.0))
-        return score
+        return value_accumulator
 
     def sample_action(self, actor_idx: int, rng: np.random.Generator, existing_actions: Optional[List[Tuple[Action, float]]] = None) -> Tuple[Action, float]:
         """Samples a new action for the actor, ensuring diversity within the pool and against existing expansions."""
@@ -155,9 +120,62 @@ class MCTSGameState(GameStateProtocol):
                 score = self._score_robot_action(best_v, best_omega)
     
         return (best_v, best_omega), score
+    
+    def _score_robot_action(self, linear_velocity, rotational_velocity) -> float:
+        robot_position = self.positions[0, :]
+        robot_linear_velocity = self.linear_velocities[0]
+        robot_orientation = self.orientations[0]
+        robot_angular_velocity = self.angular_velocities[0]
 
+        linear_change = self.config.robot_max_linear_accel * self.config.dt
+        new_velocity = np.clip(linear_velocity,
+                                robot_linear_velocity - linear_change,
+                                robot_linear_velocity + linear_change)
+        angular_change = self.config.robot_max_angular_accel * self.config.dt
+        new_angular_velocity = np.clip(rotational_velocity,
+                                robot_angular_velocity - angular_change,
+                                robot_angular_velocity + angular_change)
+
+        x_new, y_new, robot_new_orientation = self._propagate_unicycle(
+            robot_position[0],
+            robot_position[1],
+            robot_orientation,
+            new_velocity,
+            new_angular_velocity,
+            self.config.dt,
+        )
+
+        goal_vector = self.agent_goal_positions[0, :] - self.positions[0, :]
+        goal_norm = np.linalg.norm(goal_vector)
+        goal_direction = goal_vector / goal_norm if goal_norm > 1e-9 else np.zeros_like(goal_vector)
+        goal_heading = math.atan2(goal_vector[1], goal_vector[0]) if goal_norm > 1e-9 else 0.0
+
+        # How much progress has been made
+        action_vector = np.array([x_new, y_new]) - self.positions[0, :]
+        action_norm = np.linalg.norm(action_vector)
+        if action_norm > 1e-9 and goal_norm > 1e-9:
+            progress_alignment = float(np.dot(goal_direction, action_vector / action_norm))
+        elif action_norm <= 1e-9 and goal_norm > 1e-9:
+            progress_alignment = 0.0
+        else:
+            progress_alignment = 1.0
+
+        # Head towards the goal
+        heading_error = math.atan2(
+            math.sin(goal_heading - robot_new_orientation),
+            math.cos(goal_heading - robot_new_orientation),
+        )
+        heading_alignment = math.cos(heading_error) if goal_norm > 1e-9 else 1.0
+
+        combined_alignment = (
+            self.config.action_progress_weight * progress_alignment
+            + self.config.action_heading_weight * heading_alignment
+        )
+        score = float(np.exp(combined_alignment - 1.0))
+        return score
 
     def _propagate_unicycle(self, x, y, theta, v, omega, dt, eps=1e-9):
+        # Simple dynamics
         if abs(omega) < eps:
             x_new = x + v * dt * math.cos(theta)
             y_new = y + v * dt * math.sin(theta)
@@ -184,14 +202,14 @@ class MCTSGameState(GameStateProtocol):
         #collisions = np.zeros((self.config.mcts_config.num_actors))
 
         for i in range(substeps):
-            x_velocities = np.cos(self.orientations)
-            y_velocities = np.sin(self.orientations)
+            x_velocities = np.cos(orientations)
+            y_velocities = np.sin(orientations)
             velocity_dir = np.concat([x_velocities[:, None], y_velocities[:, None]], axis=1)
-            velocities = velocity_dir * self.linear_velocities[:, None]
+            velocities = velocity_dir * linear_velocities[:, None]
             human_velocities = self._calculate_human_velocities(positions, velocities)
 
             robot_position = positions[0, :]
-            robot_linear_velocity = self.linear_velocities[0]
+            robot_linear_velocity = linear_velocities[0]
             robot_orientation = orientations[0]
             robot_angular_velocity = angular_velocities[0]
 
@@ -211,7 +229,7 @@ class MCTSGameState(GameStateProtocol):
 
             linear_velocities = np.empty_like(linear_velocities)
             linear_velocities[0] = new_velocity
-            linear_velocities[1:] = np.linalg.norm(human_velocities)
+            linear_velocities[1:] = np.linalg.norm(human_velocities, axis=1)
 
             orientations = np.empty_like(orientations)
             orientations[0] = robot_new_orientation
@@ -225,17 +243,19 @@ class MCTSGameState(GameStateProtocol):
             new_positions[1:] = positions[1:] + substep_dt * human_velocities
             new_positions[0, 0] = x_new
             new_positions[0, 1] = y_new
+
+            # Only keep agents that are in the bounds
             free_space = np.array([
                 not collides_with_walls(
-                    self.config.map.world_to_cell(new_positions[i, :]),
+                    new_positions[i, :],
                     self.config.robot_radius if i == 0 else self.config.human_radius,
                     self.config.map)
                 for i in range(self.config.mcts_config.num_actors)
             ])
 
-            #collisions += ~free_space
-
             positions[free_space] = new_positions[free_space]
+
+            #collisions += ~free_space
 
         #collision_cost = -1.0 * collisions * self.config.robot_speed * substep_dt
 
@@ -253,7 +273,6 @@ class MCTSGameState(GameStateProtocol):
             self._collision_occured = any(self._collision_mask)
 
         return self._collision_mask, self._collision_occured
-
 
     def is_terminal(self) -> bool:
         _, is_invalid = self._get_invalid_state()
@@ -281,36 +300,42 @@ class MCTSGameState(GameStateProtocol):
         score = total_distance / total_possible_distance
         return score
     
-    def _uncomfortable_distance_meter_score(self) -> np.ndarray:
+    def _uncomfortable_distance_metre_score(self) -> np.ndarray:
         robot_position = self.positions[0, :]
         other_positions = self.positions[1:, :]
+        if other_positions.shape[0] == 0:
+            return 0.0
+
         distances = np.linalg.norm(other_positions - robot_position, axis=1)
-        is_uncomfortable = distances < self.config.uncomfortable_distance
-        costs = np.zeros(other_positions.shape[0])
-        costs[is_uncomfortable] = self.config.robot_speed * self.config.dt
-        total_cost = np.sum(costs)
-
-        return -total_cost
-    
-    def _near_wall_meter_score(self) -> np.ndarray:
-        robot_position = self.positions[0, :]
-        map = self.config.map
-        x, y = map.world_to_cell(robot_position)
-
-        x = x - 1
-        y = y - 1
-
-        start_x = np.clip(x, 0, map.width)
-        end_x = np.clip(x+3, 0, map.width)
-
-        start_y = np.clip(y, 0, map.height)
-        end_y = np.clip(y+3, 0, map.height)
-
-        num_cells = 1.0 if map.wall_cells_in_range((start_x, start_y), (end_x, end_y)) > 0 else 0.0
+        contact_distance = self.config.robot_radius + self.config.human_radius
+        comfort_span = max(self.config.uncomfortable_distance - contact_distance, 1e-6)
         
-        return -self.config.robot_speed * self.config.dt * num_cells
-
+        # 0 at the comfort boundary, 1 at contact
+        penalty = np.clip(
+            (self.config.uncomfortable_distance - distances) / comfort_span,
+            0.0,
+            1.0,
+        )
+        # Use quadratic so the penalty grows more sharply as the robot gets closer to the human.
+        per_human_cost = penalty**2 * self.config.robot_speed * self.config.dt
+        return -float(np.sum(per_human_cost))
     
+    def _near_wall_metre_score(self) -> np.ndarray:
+        robot_position = self.positions[0, :]
+        desired_clearance = self.config.robot_radius + 0.25
+
+        cx, cy = self.config.map.world_to_cell(robot_position)
+        clearance = float(self.config.map.wall_distance_field[cy, cx])
+        if clearance >= desired_clearance:
+            return 0.0
+
+        # Linear shortage: 0 at the clearance boundary, 1 at contact. Kept
+        # linear (not quadratic like the social cost) so the wall term nudges
+        # the robot off a wall without dominating the social gradient.
+        shortage = desired_clearance - clearance
+        normalized_shortage = shortage / max(desired_clearance, 1e-6)
+        return -self.config.robot_speed * self.config.dt * normalized_shortage
+
     def _sfm_force_score(self):
         num_humans = self.positions.shape[0] - 1
         if num_humans > 0:
@@ -339,23 +364,6 @@ class MCTSGameState(GameStateProtocol):
         #scores = np.where(self.config.starting_distances > 0, -distances / safe_starting, 0.0)
 
         return distances
-    
-    def _accumulate_value(self, value_accumulator) -> np.ndarray:
-        value_accumulator = value_accumulator.copy()
-        #value_accumulator[0] += 0.6 * self._sfm_force_score()
-        #value_accumulator[0] += self._uncomfortable_distance()
-        value_accumulator[0] += 1.5 * self._uncomfortable_distance_meter_score()
-        value_accumulator[0] += 0.1 * self._near_wall_meter_score()
-        if self.is_terminal():
-            value_accumulator += 1.0 * self._goal_distance()
-        
-        invalid_state_mask, _ = self._get_invalid_state()
-        value_accumulator[invalid_state_mask] = -2.0 * self.config.starting_distances[0]
-
-        return value_accumulator
-
-    def terminal_values(self) -> ValueMap:
-        return self._accumulated_value.tolist()
 
     # All good here
     def _calculate_human_velocities(self, positions, velocities):

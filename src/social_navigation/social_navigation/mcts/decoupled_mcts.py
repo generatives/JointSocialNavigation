@@ -267,11 +267,10 @@ class MCTS:
             best_actions = self._most_visited_actions(next_node)
             action_definition = [next_node.action_definitions[actor_idx][action_idx][0] for actor_idx, action_idx in enumerate(best_actions)]
             actions.append(action_definition)
+            next_node = next_node.get_child(tuple(best_actions))
             states.append(next_node.state)
 
             #robot_action_percentages.append(next_node.action_visits[0][best_actions[0]] / next_node.visits)
-
-            next_node = next_node.get_child(tuple(best_actions))
 
         #print(robot_action_percentages)
         
