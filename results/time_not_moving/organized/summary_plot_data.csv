@@ -1,4 +1,5 @@
 scenario_group,experiment,method_label,record_count,time_not_moving
+doors_hallway,doors_hallway,mcts,1,0.0
 doors_hallway,doors_hallway,nav2,1,0.0
 intersection_hallway,intersection_hallway,mcts,1,0.0
 intersection_hallway,intersection_hallway,nav2,1,0.0

@@ -1,4 +1,5 @@
 scenario_group,experiment,method_label,record_count,personal_space_intrusions
+doors_hallway,doors_hallway,mcts,1,27.985074626865668
 doors_hallway,doors_hallway,nav2,1,13.79310344827586
 intersection_hallway,intersection_hallway,mcts,1,16.16766467065868
 intersection_hallway,intersection_hallway,nav2,1,3.571428571428571
@@ -10,7 +11,7 @@ narrow_hallway,2_towards_robot,mcts,1,14.15929203539823
 narrow_hallway,2_towards_robot,nav2,1,8.19672131147541
 narrower_hallway,narrower_hallway,mcts,1,8.035714285714286
 narrower_hallway,narrower_hallway,nav2,1,7.567567567567568
-t_shape_hallway,t_shape_hallway,mcts,1,21.55963302752294
+t_shape_hallway,t_shape_hallway,mcts,1,13.30049261083744
 t_shape_hallway,t_shape_hallway,nav2,1,13.333333333333334
 wide_hallway,wide_hallway,mcts,1,20.0
 wide_hallway,wide_hallway,nav2,1,16.0

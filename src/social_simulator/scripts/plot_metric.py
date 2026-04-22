@@ -12,7 +12,7 @@ import pandas as pd
 
 DEFAULT_METRIC = "avg_distance_to_closest_person"
 TIME_COLUMN_CANDIDATES = ("time_stamps.1", "time_stamps")
-GENERIC_SUMMARY_STEMS = {"metrics", "metrics_nav2"}
+GENERIC_SUMMARY_STEMS = {"metrics", "metrics_nav2", "metrics_mcts"}
 KNOWN_BASE_METHODS = ("nav2", "mcts")
 METRIC_ALIASES = {
     "closest_person_distance": DEFAULT_METRIC,
@@ -164,10 +164,34 @@ def discover_scenario_names(results_dir: Path) -> list[str]:
             if path.is_dir():
                 scenario_names.add(path.name)
 
+    def register_from_experiment_tag(experiment_tag: str) -> None:
+        normalized_tag = normalize_cli_token(experiment_tag)
+        if not normalized_tag:
+            return
+
+        known_scenarios = sorted(scenario_names, key=scenario_match_sort_key)
+        scenario_group, _, _ = parse_summary_experiment(normalized_tag, known_scenarios)
+        if scenario_group:
+            scenario_names.add(scenario_group)
+
+    central_summary_path = results_dir / "metrics.csv"
+    if central_summary_path.exists():
+        summary_df = pd.read_csv(central_summary_path)
+        if "experiment_tag" in summary_df.columns:
+            for experiment_tag in summary_df["experiment_tag"].dropna().astype(str):
+                register_from_experiment_tag(experiment_tag)
+
     for file_path in sorted(results_dir.rglob("metrics*.csv")):
         rel_path = file_path.relative_to(results_dir)
         if len(rel_path.parts) >= 2 and rel_path.parts[1] in KNOWN_BASE_METHODS:
             scenario_names.add(rel_path.parts[0])
+            continue
+
+        if file_path.name.startswith("metrics_steps"):
+            stem = file_path.stem
+            remainder = stem[len("metrics_steps_") :] if stem.startswith("metrics_steps_") else stem
+            experiment_body, _, _ = split_config_and_run_id(remainder)
+            register_from_experiment_tag(experiment_body)
 
     return sorted(scenario_names, key=scenario_match_sort_key)
 

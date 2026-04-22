@@ -1,4 +1,5 @@
 scenario_group,method_path,method_label,experiment,raw_experiment,config,run_id,source_file,source_stem,summary_row_index,time_not_moving,experiment_inferred,scenario_harmonized
+doors_hallway,mcts,mcts,doors_hallway,mcts_doors_hallway_doors_hallway,,0,metrics.csv,metrics,15,0.0,False,True
 doors_hallway,nav2,nav2,doors_hallway,nav2_doors_hallway_doors_hallway,,0,metrics.csv,metrics,7,0.0,False,True
 intersection_hallway,mcts,mcts,intersection_hallway,mcts_intersection_hallway_3_crossing,,0,metrics.csv,metrics,12,0.0,False,True
 intersection_hallway,nav2,nav2,intersection_hallway,nav2_intersection_hallway_3_crossing,,0,metrics.csv,metrics,4,0.0,False,True

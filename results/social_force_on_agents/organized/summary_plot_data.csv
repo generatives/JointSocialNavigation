@@ -1,4 +1,5 @@
 scenario_group,experiment,method_label,record_count,social_force_on_agents
+doors_hallway,doors_hallway,mcts,1,13.008084
 doors_hallway,doors_hallway,nav2,1,1.2821857
 intersection_hallway,intersection_hallway,mcts,1,7.343127
 intersection_hallway,intersection_hallway,nav2,1,0.2661528
@@ -10,7 +11,7 @@ narrow_hallway,2_towards_robot,mcts,1,8.395468
 narrow_hallway,2_towards_robot,nav2,1,19.58727
 narrower_hallway,narrower_hallway,mcts,1,11.6144705
 narrower_hallway,narrower_hallway,nav2,1,19.46556
-t_shape_hallway,t_shape_hallway,mcts,1,25.835527
+t_shape_hallway,t_shape_hallway,mcts,1,9.455843
 t_shape_hallway,t_shape_hallway,nav2,1,2.227872
 wide_hallway,wide_hallway,mcts,1,5.3324933
 wide_hallway,wide_hallway,nav2,1,0.9851246

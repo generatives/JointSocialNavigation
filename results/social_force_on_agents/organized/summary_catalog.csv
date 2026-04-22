@@ -1,4 +1,5 @@
 scenario_group,method_path,method_label,experiment,raw_experiment,config,run_id,source_file,source_stem,summary_row_index,social_force_on_agents,experiment_inferred,scenario_harmonized
+doors_hallway,mcts,mcts,doors_hallway,mcts_doors_hallway_doors_hallway,,0,metrics.csv,metrics,15,13.008084,False,True
 doors_hallway,nav2,nav2,doors_hallway,nav2_doors_hallway_doors_hallway,,0,metrics.csv,metrics,7,1.2821857,False,True
 intersection_hallway,mcts,mcts,intersection_hallway,mcts_intersection_hallway_3_crossing,,0,metrics.csv,metrics,12,7.343127,False,True
 intersection_hallway,nav2,nav2,intersection_hallway,nav2_intersection_hallway_3_crossing,,0,metrics.csv,metrics,4,0.2661528,False,True
@@ -10,7 +11,7 @@ narrow_hallway,nav2,nav2,1_behind_robot,nav2_narrow_hallway_1_behind_robot,,0,me
 narrow_hallway,nav2,nav2,2_towards_robot,nav2_narrow_hallway_2_towards_robot,,0,metrics.csv,metrics,1,19.58727,False,False
 narrower_hallway,mcts,mcts,narrower_hallway,mcts_narrower_hallway_2_towards_robot,,0,metrics.csv,metrics,8,11.6144705,False,True
 narrower_hallway,nav2,nav2,narrower_hallway,nav2_narrower_hallway_2_towards_robot,,0,metrics.csv,metrics,0,19.46556,False,True
-t_shape_hallway,mcts,mcts,t_shape_hallway,mcts_t_shape_hallway_t_shape_hallway,,0,metrics.csv,metrics,14,25.835527,False,True
+t_shape_hallway,mcts,mcts,t_shape_hallway,mcts_t_shape_hallway_t_shape_hallway,,0,metrics.csv,metrics,14,9.455843,False,True
 t_shape_hallway,nav2,nav2,t_shape_hallway,nav2_t_shape_hallway_t_shape_hallway,,0,metrics.csv,metrics,6,2.227872,False,True
 wide_hallway,mcts,mcts,wide_hallway,mcts_wide_hallway_3_agents_group,,0,metrics.csv,metrics,13,5.3324933,False,True
 wide_hallway,nav2,nav2,wide_hallway,nav2_wide_hallway_3_agent_group,,0,metrics.csv,metrics,5,0.9851246,False,True
