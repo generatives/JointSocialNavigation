@@ -7,6 +7,9 @@ We apply a modified version of Monte Carlo Tree Search which uses Decoupled UCT,
 
 The repository contains the core algorithm, a simple PyGame simulator for early testing, a ROS frontend, a HuNavSim evaluation system and set of scenarios.
 
+## Example
+![mcts_narrower](./images/mcts_narrower.gif)
+
 ## Tour of the Codebase
 The core system is contained in the "social_navigation" ROS module inside the src folder.
 - social_navigation/mcts/decoupled_mcts.py contains an implementation of MCTS with Decoupled UCT, PUCT, and Progressive Widening over sampled actions
