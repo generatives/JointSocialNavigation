@@ -26,7 +26,7 @@ At runtime the system is setup as follows:
 
 ## Run the Social Simulator
 
-Start by following the standard ros2_ws instructions at the bottom of this README
+Start by following the standard ROS2 Workspace instructions at the bottom of this README
 
 Then build:
 ```
