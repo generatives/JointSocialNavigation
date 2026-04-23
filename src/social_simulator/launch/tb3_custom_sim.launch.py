@@ -173,7 +173,7 @@ def generate_launch_description():
     pub_robot_pose_node = Node(
         package="hunavis",
         executable="publish_global_pose",
-        arguments=["--ros-args", "--log-level", "WARN"],
+        arguments=["--ros-args", "--log-level", "ERROR"],
     )
  
     # Add the actions to launch all of the navigation nodes

@@ -264,7 +264,7 @@ class Navigator(Node):
         num_agents = positions.shape[0]
         # Each HuNavSim agent only has 1 action
         # Robot has 8 actions
-        num_actions = [8] + [1] * (num_agents - 1)
+        num_actions = [8] + [3] * (num_agents - 1)
         mcts_config = MCTSConfig(
             num_actors=num_agents,
             max_actions=num_actions,
