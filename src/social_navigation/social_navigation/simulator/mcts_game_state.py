@@ -66,14 +66,17 @@ class MCTSGameState(GameStateProtocol):
 
     def _accumulate_value(self, value_accumulator) -> np.ndarray:
         value_accumulator = value_accumulator.copy()
-        #value_accumulator[0] += 0.6 * self._sfm_force_score()
-        #value_accumulator[0] += self._uncomfortable_distance()
+        # Only the robot currently receives dense shaping rewards. Humans are
+        # advanced as part of the joint state but are not optimized here.
         value_accumulator[0] += 1.5 * self._uncomfortable_distance_metre_score()
         value_accumulator[0] += 1.0 * self._near_wall_metre_score()
         if self.is_terminal():
+            # Goal-distance reward is deferred until the leaf so intermediate
+            # states are compared mostly on local safety/comfort terms.
             value_accumulator += 1.0 * self._goal_distance()
         
         invalid_state_mask, _ = self._get_invalid_state()
+        # Any agent in collision or invalid space gets a strong terminal penalty.
         value_accumulator[invalid_state_mask] = -2.0 * self.config.starting_distances[0]
 
         return value_accumulator
@@ -82,7 +85,8 @@ class MCTSGameState(GameStateProtocol):
         """Samples a new action for the actor, ensuring diversity within the pool and against existing expansions."""
 
         if actor_idx == 0:
-            # To modify later  based on specific heuristics 
+            # The robot samples controls from a broad proposal distribution and
+            # scores them with a lightweight goal-alignment heuristic.
             v_mean, v_std =  0.5 * self.config.robot_speed, 0.5
             omega_mean, omega_std = 0.0, self.config.robot_angular_velocity * 0.5
 
@@ -93,12 +97,14 @@ class MCTSGameState(GameStateProtocol):
             best_v, best_omega, score = 0.0, 0.0, 1.0
 
             if not existing_actions or not SAMPLE_DISTANT_ACTIONS:
-                # First action has nothing to be diverse against
+                # The first action can be any plausible control sample.
                 best_v = float(np.clip(rng.normal(v_mean, v_std), -self.config.robot_speed, self.config.robot_speed))
                 best_omega = float(np.clip(rng.normal(omega_mean, omega_std), -self.config.robot_angular_velocity, self.config.robot_angular_velocity))
             else:
                 max_min_dist = -1.0
-                num_candidates = 5 # Number of samples to draw from the distribution
+                # Prefer samples that are far from actions already tried so the
+                # tree covers the continuous control space more evenly.
+                num_candidates = 5
                 existing_arr = np.array([action for action, _ in existing_actions]) # Shape: (N, 2)
                 
                 for _ in range(num_candidates):
@@ -117,10 +123,13 @@ class MCTSGameState(GameStateProtocol):
                         max_min_dist = min_tree_dist
                         best_v, best_omega = v_cand, omega_cand
 
-            # calculate heuristic score
+            # This score is used as the prior in the PUCT selection term.
             score = self._score_robot_action(best_v, best_omega)
             return (best_v, best_omega), score
         else:
+            # Humans are modeled as stochastic velocity disturbances around a
+            # preferred walking speed rather than deliberate planners.
+            # This velocity is added to the one calculated by SFM.
             vel_dist = rng.normal(0, HUMAN_PREFERRED_SPEED * 0.33, size=(2,))
             return (vel_dist[0], vel_dist[0]), 1.0
 
@@ -154,7 +163,8 @@ class MCTSGameState(GameStateProtocol):
         goal_direction = goal_vector / goal_norm if goal_norm > 1e-9 else np.zeros_like(goal_vector)
         goal_heading = math.atan2(goal_vector[1], goal_vector[0]) if goal_norm > 1e-9 else 0.0
 
-        # How much progress has been made
+        # Reward controls that both move along the goal direction and leave the
+        # robot facing that direction after one simulated step.
         action_vector = np.array([x_new, y_new]) - self.positions[0, :]
         action_norm = np.linalg.norm(action_vector)
         if action_norm > 1e-9 and goal_norm > 1e-9:
@@ -179,7 +189,7 @@ class MCTSGameState(GameStateProtocol):
         return score
 
     def _propagate_unicycle(self, x, y, theta, v, omega, dt, eps=1e-9):
-        # Simple dynamics
+        # Integrate the robot's unicycle model over one timestep.
         if abs(omega) < eps:
             x_new = x + v * dt * math.cos(theta)
             y_new = y + v * dt * math.sin(theta)
@@ -200,7 +210,8 @@ class MCTSGameState(GameStateProtocol):
         orientations = self.orientations.copy()
         angular_velocities = self.angular_velocities.copy()
 
-        # The robot's continuous action is directly used
+        # The first action belongs to the robot; the remaining entries are
+        # stochastic velocity perturbations for the humans.
         robot_goal_v, robot_goal_omega = actions[0][0]
         human_velocity_disturbance = np.array([t[0] for t in actions[1:]])
 
@@ -250,7 +261,7 @@ class MCTSGameState(GameStateProtocol):
             new_positions[0, 0] = x_new
             new_positions[0, 1] = y_new
 
-            # Only keep agents that are in the bounds
+            # Agents that would step into walls stay at their previous position.
             free_space = np.array([
                 not collides_with_walls(
                     new_positions[i, :],
@@ -272,6 +283,8 @@ class MCTSGameState(GameStateProtocol):
     
     def _get_invalid_state(self) -> bool:
         if self._collision_occured is None:
+            # Cache collision checks because search revisits the same state
+            # multiple times during terminal tests and value accumulation.
             self._collision_mask = np.array([
                 not self.config.map.position_is_free(self.positions[i, :])
                 for i in range(self.config.mcts_config.num_actors)
@@ -285,6 +298,8 @@ class MCTSGameState(GameStateProtocol):
         reached_depth = self.depth >= self.config.mcts_config.max_depth
         goal_distance = np.linalg.norm(self.agent_goal_positions[0] - self.positions[0])
         reached_goal = goal_distance < 0.25
+        # Search stops on collision, depth limit, or when the robot reaches its
+        # current local waypoint.
         terminal = is_invalid or reached_depth or reached_goal
         if self.depth == 0 and terminal:
             print(f"Root is terminal on: is_invalid {is_invalid}, reached_depth {reached_depth}, reached_goal {reached_goal}")
@@ -316,7 +331,7 @@ class MCTSGameState(GameStateProtocol):
         contact_distance = self.config.robot_radius + self.config.human_radius
         comfort_span = max(self.config.uncomfortable_distance - contact_distance, 1e-6)
         
-        # 0 at the comfort boundary, 1 at contact
+        # Convert clearance into a normalized proximity penalty.
         penalty = np.clip(
             (self.config.uncomfortable_distance - distances) / comfort_span,
             0.0,
@@ -335,9 +350,8 @@ class MCTSGameState(GameStateProtocol):
         if clearance >= desired_clearance:
             return 0.0
 
-        # Linear shortage: 0 at the clearance boundary, 1 at contact. Kept
-        # linear (not quadratic like the social cost) so the wall term nudges
-        # the robot off a wall without dominating the social gradient.
+        # Keep the wall penalty linear so it nudges the robot away from walls
+        # without overwhelming the human-clearance cost.
         shortage = desired_clearance - clearance
         normalized_shortage = shortage / max(desired_clearance, 1e-6)
         return -self.config.robot_speed * self.config.dt * normalized_shortage
@@ -358,7 +372,7 @@ class MCTSGameState(GameStateProtocol):
     def _goal_distance(self) -> np.ndarray:
         distances = np.linalg.norm(self.agent_goal_positions - self.positions, axis=1)
 
-        # small nudge to encourage getting to the final goal earlier
+        # Reaching the goal early is slightly better than reaching it late.
         if distances[0] < 0.25:
             distances[0] = -(self.config.mcts_config.max_depth - self.depth) * self.config.dt * self.config.robot_speed
 
@@ -371,7 +385,6 @@ class MCTSGameState(GameStateProtocol):
 
         return distances
 
-    # All good here
     def _calculate_human_velocities(self, positions, velocities):
         dt = self.config.dt
 
@@ -387,6 +400,8 @@ class MCTSGameState(GameStateProtocol):
             if dist > 1e-6:
                 desired[i] = (to_target / dist) * HUMAN_PREFERRED_SPEED
 
+        # Humans follow a simple social-force model: relax toward their goal
+        # velocity, then add repulsion from other humans, the robot, and walls.
         relaxation_time = 0.45
         accel = (desired - human_velocities) / relaxation_time
         social_forces, force_generated = self._social_forces(human_positions)
@@ -465,6 +480,8 @@ class MCTSGameState(GameStateProtocol):
 
 def navigation_rollout(state: MCTSGameState):
     rng = state.config.mcts_config.rng
+    # Roll out with freshly sampled joint actions until the simulated horizon
+    # ends, then return the terminal value vector.
     while not state.is_terminal():
         action_definitions = [
             state.sample_action(actor_idx, rng)

@@ -39,7 +39,8 @@ class MCTSConfig:
         if any(action_count <= 0 for action_count in self.max_actions):
             raise ValueError("all entries in max_actions must be > 0")
         
-        # Calculate steps for Cartesian indexing
+        # Precompute mixed-radix steps for turning per-actor action choices
+        # into a stable joint-action index when needed.
         child_index_steps = []
         radix = 1
         for action_count in self.max_actions:
@@ -97,7 +98,8 @@ class _Node:
         self.action_taken_to_reach = action_taken_to_reach
         self.visits = 0
         
-        # Parallel lists to track continuous action branches
+        # Each actor keeps its own sampled action pool plus visit/value stats.
+        # Children are keyed by the tuple of chosen action indices, one per actor.
         self.children: Dict[Tuple[int, ...], '_Node'] = {}
         self.action_visits: List[List[int]] = [[] for _ in range(self.config.num_actors)]
         self.action_values: List[List[float]] = [[] for _ in range(self.config.num_actors)]
@@ -117,6 +119,8 @@ class _Node:
         if self.visits == 0: # Edge case if the node was not expanded yet. PW sucky sucky
             return [1] * self.config.num_actors
 
+        # Progressive widening grows each actor's local action set as the node
+        # gets revisited, rather than enumerating the continuous action space up front.
         pw_limit = math.ceil(self.config.pw_c * (self.visits ** self.config.pw_alpha))
 
         target_counts = [
@@ -167,8 +171,6 @@ class _Node:
         print(scores)
 
     def select_or_expand(self) -> "_Node":
-        #print(f"Current node {self.state}")
-        #print(f"Current fully expanded {self.is_fully_expanded_pw()}")
         selected_actions = []
         target_action_counts = self.get_target_action_counts()
         for actor_idx in range(self.config.num_actors):
@@ -178,8 +180,7 @@ class _Node:
             if num_actions < target_action_counts[actor_idx]:
                 existing_actions = self.action_definitions[actor_idx]
 
-                # Pass them to the state
-                target_action_counts = self.get_target_action_counts()
+                # Grow this actor's candidate set with a new sampled action.
                 new_action = self.state.sample_action(actor_idx, self.config.rng, existing_actions)
 
                 self.action_visits[actor_idx].append(0)
@@ -188,6 +189,8 @@ class _Node:
 
                 selected_actions.append(len(self.action_visits[actor_idx]) - 1)
             else:
+                # Once the local pool is large enough, choose among known actions
+                # using a PUCT-style exploration bonus weighted by the action prior.
                 sqrt_visits = math.sqrt(self.visits + 1)
                 best_score = -math.inf
                 best_idx = 0
@@ -224,6 +227,8 @@ class _Node:
         self.visits += 1
         parent = self.parent
         if parent is not None:
+            # Each actor receives only its own value for the action it took to
+            # reach this node, which is what makes the search "decoupled".
             for actor, action in enumerate(self.action_taken_to_reach):
                 parent.action_visits[actor][action] += 1
                 parent.action_values[actor][action] += values[actor]
@@ -259,6 +264,8 @@ class MCTS:
             trajectory = self._get_expected_trajectory(child)
             state_trajectory.extend([state for node in trajectory for state in [node.parent.state, node.state] if node.parent])
 
+        # Recover a greedy execution plan by repeatedly following the most
+        # visited per-actor action choice from the root.
         next_node = root
         actions = []
         states = []
@@ -280,15 +287,14 @@ class MCTS:
         node = root
         depth = 0
 
-        #if not root.is_fully_expanded_pw():
-        #    print("Expanding Root")
-
-        # Traverse tree
+        # Follow already-expanded branches until we hit a leaf, a terminal state,
+        # or the depth limit.
         while node.is_fully_expanded_pw() and not node.state.is_terminal() and depth < self.config.max_depth:
             node = node.select_or_expand()
             depth += 1
 
-        # Evaluate
+        # Terminal nodes use exact values; otherwise force one expansion before
+        # handing control to the rollout policy.
         if node.state.is_terminal():
             values = node.state.terminal_values()
         else:
@@ -296,7 +302,7 @@ class MCTS:
                 node = node.select_or_expand() # Force an expansion step
             values = self.rollout_fn(node.state)
 
-        # Backpropagate
+        # Propagate the resulting value vector back through the decoupled stats.
         node.backpropagate(values)
 
     def _get_expected_trajectory(self, node: _Node):

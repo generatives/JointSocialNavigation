@@ -14,6 +14,14 @@ The core system is contained in the "social_navigation" ROS module inside the sr
 
 The "social_simulator" module contains launch files for the simulator and evaluation. It also contains all the test scenarios and a simple ROS Node for launching the evaluation.
 
+At runtime the system is setup as follows:
+- The ROS Node navigator.py receives the goal, human state information, and a cost map for static obstacles.
+- The Node runs A* to get a global path to the goal.
+- Every 500ms the Node runs the MCTS planner to get a local plan for the next 500ms of action.
+- The Node has to setup the MCTS planner to run it. It creates an instance of MCTSGameState to represent the current world state. MCTSGameState implements the GameStateProtocol required by the MCTS implementation. GameStateProtocol contains world state, logic for sampling and applying actions, accessing probabilities of actions, and calculating the value of nodes.
+- The MCTS planner returns a trajectory of actions and states for the robot to execute.
+- A Pure Pursuit planner implemented inside the navigator node is used to track the trajectory, combining the MCTS actions with ones calculated in real time to account for error.
+
 ## Run the Social Simulator
 
 Start by following the standard ros2_ws instructions at the bottom of this README

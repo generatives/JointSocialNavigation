@@ -165,6 +165,8 @@ class Navigator(Node):
     ################################
 
     def _clear_mcts_plan(self) -> None:
+        # Reset both the open-loop MCTS plan and the cached state used by the
+        # feedback tracker that follows it.
         self._mcts_plan_start_time = None
         self._mcts_action_plan = None
         self._mcts_predicted_robot_positions = None
@@ -196,7 +198,8 @@ class Navigator(Node):
             self.send_cmd_vel(0.0, 0.0)
             return
 
-        # Compute global plan to get waypoints using A*
+        # First use A* for long-range obstacle avoidance, then hand a local
+        # waypoint to MCTS for short-horizon social navigation.
         astar_start_time = time.perf_counter()
         if do_global_plan or not self._global_plan_cells:
             self._update_global_plan(robot_position)
@@ -221,7 +224,8 @@ class Navigator(Node):
             transform.transform.rotation.w,
         )
 
-        # MCTS planning problem
+        # Build the joint planning state from the current robot estimate plus
+        # the latest human positions and predicted goals.
         positions = np.array([
             [transform.transform.translation.x, transform.transform.translation.y]
         ])
@@ -245,7 +249,8 @@ class Navigator(Node):
             human_orientations = np.arctan2(human_velocities[:, 1], human_velocities[:, 0])
             human_angular_velocities = np.zeros_like(human_orientations)
             
-            # Uses Exponential Moving Average
+            # Smooth human velocity estimates before projecting likely goals so
+            # the planner does not react to frame-to-frame noise.
             human_goals = self._predict_human_goals(
                 human_positions,
                 human_velocities,
@@ -302,7 +307,8 @@ class Navigator(Node):
             depth=0
         )
 
-        # Joint MCTS Plan
+        # Search for a short-horizon joint plan over robot controls and human
+        # motion disturbances, then keep the robot branch for execution.
         mcts_start_time = time.perf_counter()
         mcts_plan_start_time = time.time()
         actions, states, _, _ = mcts.search(root_state, num_simulations=500)
@@ -362,6 +368,8 @@ class Navigator(Node):
             self._last_global_plan_time = now
             return
 
+        # Inflate obstacles so the global path leaves enough clearance for the
+        # robot body and the local tracker.
         inflated_cells = max(
             1,
             int(
@@ -394,8 +402,8 @@ class Navigator(Node):
         distances = np.linalg.norm(path_points - robot_position, axis=1)
         nearest_idx = np.argmin(distances)
 
-        # Selects a local waypoint from the global plan
-        # Used as the goal for MCTS
+        # Walk forward along the global path until the configured lookahead
+        # distance is reached; that point becomes the MCTS subgoal.
         waypoint = path_points[-1]
         travelled = 0.0
         for idx in range(nearest_idx, len(path_points) - 1):
@@ -423,13 +431,13 @@ class Navigator(Node):
         if len(self._mcts_predicted_robot_positions) == 0 or len(self._mcts_predicted_robot_orientations) == 0:
             return None
 
-        # We need a tracking controller due to a model mismatch between MCTS 
-        # and the turtlebot
-        # Pure Pursuit tracking controller 
+        # MCTS plans with a simplified dynamics model, so execution uses a
+        # pure-pursuit-style feedback controller to stay close to that plan.
         plan_points = self._mcts_predicted_robot_positions
         plan_orientations = self._mcts_predicted_robot_orientations
 
-        # Need the tracking state index to know which point on the plan to start at
+        # Resume tracking near the last matched plan state instead of searching
+        # from the beginning every cycle.
         search_start = min(
             max(0, self._mcts_tracking_state_idx - 1),
             len(plan_points) - 1,
@@ -439,8 +447,8 @@ class Navigator(Node):
         nearest_idx = search_start + int(np.argmin(distances))
         self._mcts_tracking_state_idx = nearest_idx
 
-        # Start from nearest plan point until lookahead distance is reached
-        # Use that point as the target position
+        # Pick a target point ahead on the plan, but never farther forward than
+        # the elapsed plan time would reasonably allow.
         dt = self._prediction_dt
         time_diff_limit = self._tracking_plan_lookahead_time + time.time() - self._mcts_plan_start_time
         furthest_idx = int(time_diff_limit / dt)
@@ -462,11 +470,12 @@ class Navigator(Node):
         if action_idx == len(self._mcts_action_plan) - 1 and target_distance < self._tracking_goal_tolerance:
             return 0.0, 0.0
 
-        # Get action from MCTS
+        # Start from the open-loop command suggested by MCTS.
         nominal_linear, nominal_angular = self._mcts_action_plan[action_idx][0]
         commanded_linear = max(0.0, float(nominal_linear))
 
-        # Just rotate towards target position
+        # Either face the target point directly or, if already there, align with
+        # the stored plan heading.
         if target_distance > 1e-6:
             target_heading = math.atan2(float(target_vector[1]), float(target_vector[0]))
         else:
@@ -476,7 +485,7 @@ class Navigator(Node):
         angle = target_heading - robot_yaw
         heading_error = math.atan2(math.sin(angle), math.cos(angle))
 
-        # Heading speed to reduce when the robot is not facing the target
+        # Reduce forward speed if the robot is not roughly facing the target.
         heading_speed_scale = float(
             np.clip(
                 1.0 - abs(heading_error) / math.pi,
@@ -492,16 +501,16 @@ class Navigator(Node):
 
         lookahead = max(target_distance, self._tracking_min_lookahead)
         if commanded_linear > 1e-3:
-            # Path following law
+            # Standard pure-pursuit curvature command.
             pure_pursuit_angular = (
                 commanded_linear * (2.0*math.sin(heading_error) / lookahead)
             )
         else:
-            # Rotate towards target
+            # If essentially stopped, fall back to in-place heading correction.
             pure_pursuit_angular = 1.2 * heading_error
 
-        # Velocity blend for geometric correction to stay on the planned path
-        # Extra modification Makes pure pursuit more robust
+        # Blend the nominal MCTS turn rate with the feedback correction to keep
+        # the executed motion close to the predicted trajectory.
         commanded_angular = (
             (1.0 - self._tracking_feedback_blend) * float(nominal_angular)
             + self._tracking_feedback_blend * pure_pursuit_angular
@@ -572,6 +581,8 @@ class Navigator(Node):
                         ]
                     )
 
+                # Maintain a per-agent EMA so downstream goal prediction is less
+                # sensitive to noisy velocity measurements.
                 previous_ema = self.human_velocity_ema.get(agent.id)
                 if previous_ema is None:
                     ema_velocity = velocity.copy()
@@ -606,6 +617,8 @@ class Navigator(Node):
         if human_positions.shape[0] == 0:
             return np.empty((0, 2))
 
+        # Project each human forward along its smoothed heading for roughly the
+        # same horizon the tree will simulate.
         ema_velocities = np.array(
             [
                 self.human_velocity_ema.get(agent_id, human_velocities[i])
