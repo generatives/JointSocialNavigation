@@ -3,6 +3,8 @@
 ## Overview
 This repository contains a socially aware planning system for a mobile robot. It uses Monte Carlo Tree Search and the Social Force Model to find trajectories that minimize human impact while effectively guiding the robot to its' goal.
 
+We apply a modified version of Monte Carlo Tree Search which uses Decoupled UCT, PUCT, and Progressive Widening to better model the social plannning process and manage the infinite branching factor of a continous action space.
+
 The repository contains the core algorithm, a simple PyGame simulator for early testing, a ROS frontend, a HuNavSim evaluation system and set of scenarios.
 
 ## Tour of the Codebase
