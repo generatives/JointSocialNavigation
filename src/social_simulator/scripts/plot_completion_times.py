@@ -85,12 +85,6 @@ def pretty_scenario_name(scenario: str) -> str:
     return label.title()
 
 
-def parse_completed(value: str | None) -> bool:
-    if value is None:
-        return True
-    return normalize_token(value) in {"true", "1", "yes"}
-
-
 def load_completion_times(results_file: Path) -> list[dict[str, object]]:
     with results_file.open(newline="", encoding="utf-8") as csv_file:
         reader = csv.DictReader(csv_file)
@@ -117,7 +111,6 @@ def load_completion_times(results_file: Path) -> list[dict[str, object]]:
             grouped_rows[(scenario, method)].append(
                 {
                     "time_to_reach_goal": time_to_reach_goal,
-                    "completed": parse_completed(row.get("completed")),
                 }
             )
 
@@ -132,7 +125,6 @@ def load_completion_times(results_file: Path) -> list[dict[str, object]]:
                 "scenario": scenario,
                 "method": method,
                 "time_to_reach_goal": sum(times) / len(times),
-                "completed": all(bool(row["completed"]) for row in rows),
                 "run_count": len(rows),
             }
         )
@@ -146,7 +138,6 @@ def plot_completion_times(data: list[dict[str, object]], output_path: Path, show
     colors = {"nav2": "#1f77b4", "mcts": "#ff7f0e"}
 
     fig, ax = plt.subplots(figsize=(max(10, len(scenarios) * 1.4), 6))
-    incomplete_labeled = False
 
     row_lookup = {
         (str(row["scenario"]), str(row["method"])): row
@@ -155,16 +146,13 @@ def plot_completion_times(data: list[dict[str, object]], output_path: Path, show
 
     for offset, method in [(-width / 2, "mcts"), (width / 2, "nav2")]:
         heights: list[float] = []
-        completed: list[bool] = []
         x_positions = [index + offset for index in range(len(scenarios))]
         for scenario in scenarios:
             row = row_lookup.get((scenario, method))
             if row is None:
                 heights.append(math.nan)
-                completed.append(False)
                 continue
             heights.append(float(row["time_to_reach_goal"]))
-            completed.append(bool(row["completed"]))
 
         bars = ax.bar(
             x_positions,
@@ -175,23 +163,14 @@ def plot_completion_times(data: list[dict[str, object]], output_path: Path, show
             alpha=0.9,
         )
 
-        for bar, is_completed in zip(bars, completed):
+        for bar in bars:
             if not math.isfinite(bar.get_height()):
                 bar.set_visible(False)
-                continue
-            if not is_completed:
-                bar.set_hatch("//")
-                bar.set_alpha(0.45)
-                if not incomplete_labeled:
-                    bar.set_label("Incomplete run")
-                    incomplete_labeled = True
 
     for row in data:
         method_offset = -width / 2 if row["method"] == "mcts" else width / 2
         xpos = scenarios.index(str(row["scenario"])) + method_offset
         label = f"{float(row['time_to_reach_goal']):.1f}s"
-        if not bool(row["completed"]):
-            label += " *"
         ax.text(
             xpos,
             float(row["time_to_reach_goal"]) + 0.35,
@@ -212,28 +191,7 @@ def plot_completion_times(data: list[dict[str, object]], output_path: Path, show
         Patch(facecolor=colors["mcts"], edgecolor="black", alpha=0.9, label="MCTS"),
         Patch(facecolor=colors["nav2"], edgecolor="black", alpha=0.9, label="NAV2"),
     ]
-    if not all(bool(row["completed"]) for row in data):
-        legend_handles.append(
-            Patch(
-                facecolor="white",
-                edgecolor="black",
-                hatch="//",
-                alpha=0.45,
-                label="Incomplete run",
-            )
-        )
     ax.legend(handles=legend_handles)
-
-    if not all(bool(row["completed"]) for row in data):
-        ax.text(
-            0.99,
-            0.98,
-            "* incomplete or timed-out run",
-            transform=ax.transAxes,
-            ha="right",
-            va="top",
-            fontsize=9,
-        )
 
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
